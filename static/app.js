@@ -243,118 +243,16 @@ class PiClient {
             
             // Send immediately
             this.ws.send(JSON.stringify({
-                type: command,
-                id: this.wsRequests[this.wsRequests.length - 1].id
-            }));
-        });
-    }
-    
-    async loadModels() {
-        const select = document.getElementById('model-select');
-        select.innerHTML = '<option value="">Loading...</option>';
-        
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            console.log('WebSocket not ready, showing error option');
-            const option = document.createElement('option');
-            option.disabled = true;
-            option.textContent = 'Not connected';
-            select.appendChild(option);
-            return;
-        }
-        
-        // Send get_available_models command via WebSocket
-        const requestData = {
-            type: 'get_available_models',
-            id: 'load-models-' + Date.now()
-        };
-        
-        console.log('Sending model request:', requestData);
-        this.ws.send(JSON.stringify(requestData));
-        
-        // Wait for response (polling)
-        const maxAttempts = 20;
-        for (let i = 0; i < maxAttempts; i++) {
-            // Check if we have model data from the response
-            const response = this.getLatestResponse('get_available_models');
-            if (response) {
-                break;
-            }
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        
-        // Get response
-        const response = this.getLatestResponse('get_available_models') || {};
-        const data = response.data || {};
-        
-        select.innerHTML = '';
-        
-        console.log('Model data:', JSON.stringify(data, null, 2));
-        
-        if (data.models && data.models.length > 0) {
-            data.models.forEach(model => {
-                const provider = model.provider || 'anthropic';
-                const modelId = model.id || '';
-                const name = model.name || `${provider} - ${modelId}`;
-                const value = `${provider}/${modelId}`;
-                
-                const option = document.createElement('option');
-                option.value = value;
-                option.textContent = name;
-                
-                // If no current model is set, select the first one
-                if (!this.selectedModel) {
-                    this.selectedModel = modelId;
-                    option.selected = true;
-                }
-                
-                select.appendChild(option);
-            });
-            
-            console.log(`Loaded ${data.models.length} models`);
-        } else {
-            const option = document.createElement('option');
-            option.disabled = true;
-            option.textContent = 'No models available';
-            select.appendChild(option);
-            console.warn('No models available from agent');
-        }
-    }
-    
-    // Get the most recent response for a command type
-    getLatestResponse(command) {
-        // Scan all WebSocket messages
-        if (this.ws) {
-            const messages = this.wsMessages || [];
-            return messages
-                .filter(m => m.type === 'response' && m.command === command)
-                .pop();
-        }
-        return null;
-    }
-    
-    selectModel() {
-        const modelOption = document.getElementById('model-select').value;
-        if (!modelOption) return;
-        
-        const [provider, model_id] = modelOption.split('/');
-        this.selectedModel = model_id;
-        
-        // Disable dropdown during switch
-        this.setSwitchingState(true);
-        
-        // Send set_model command
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({
                 type: 'set_model',
                 provider: provider || 'anthropic',
-                modelId: model_id
+                model_id: model_id
             }));
             
             // Register callback to wait for response
             this.modelSwitchCallback = (response) => {
                 if (response.command === 'set_model') {
                     if (response.success) {
-                        console.log('Model change confirmed');
+                        console.log('✅ Model change confirmed:', response)
                         this.setSwitchingState(false, '✓')
                     } else {
                         console.log('Model change failed');
