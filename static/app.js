@@ -11,6 +11,7 @@ class PiClient {
         this.retryCount = 0;
         this.maxRetries = 5;
         this.messageHistory = [];
+        this.isAgentConnected = false;
         
         this.init();
     }
@@ -18,7 +19,7 @@ class PiClient {
     init() {
         this.bindEvents();
         this.connect();
-        this.updateStatus('Connecting...', false);
+        this.updateStatus('Connecting agent...', false);
     }
 
     bindEvents() {
@@ -39,23 +40,25 @@ class PiClient {
 
     connect() {
         // Create or reuse session
-        if (!this.sessionId) {
-            this.sessionId = 'session-' + Date.now();
-        }
-
+        this.sessionId = 'session-' + Math.random().toString(36).substr(2, 9) + '-' + Date.now();
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${this.baseUrl.split('://')[1]}/ws/${this.sessionId}`;
         
+        this.updateStatus('Connecting WebSocket...', false);
         this.ws = new WebSocket(wsUrl);
 
         this.ws.onopen = () => {
             this.retryCount = 0;
-            this.updateStatus('Connected! Ready to chat with Pi', true);
-            this.createSession();
+            console.log('WebSocket opened to:', wsUrl);
+            this.updateStatus('WebSocket connected!', true);
+            
+            // Create agent session in the background
+            this.createAgentSession();
         };
 
         this.ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
+            console.log('Received WebSocket message:', data.type, data);
             this.handleEvent(data);
         };
 
@@ -65,7 +68,7 @@ class PiClient {
         };
 
         this.ws.onclose = () => {
-            this.updateStatus('Disconnected', false);
+            this.updateStatus('WebSocket closed', false);
             this.handleDisconnect();
         };
     }
@@ -78,49 +81,48 @@ class PiClient {
             this.updateStatus(`Reconnecting... (${this.retryCount})`, false);
             
             setTimeout(() => this.connect(), delay);
+        } else {
+            this.updateStatus('Max reconnection attempts reached', false);
         }
     }
 
-    createSession() {
-        // Create a new PI session via REST API
-        fetch(`${this.baseUrl}/api/sessions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                provider: 'anthropic',
-                model_id: 'claude-sonnet-4-20250514'
-            })
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.session_id) {
-                console.log('Session created:', data.session_id);
-                this.updateStatus('Connected to Pi Agent', true);
+    createAgentSession() {
+        // We'll create the session via REST API, but we need to associate it with our WS session
+        // For now, just wait for the agent to be ready
+        
+        // Check if the agent is responding via our WebSocket
+        setTimeout(() => {
+            // Send a test command to verify the agent is ready
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.sendCommand({
+                    type: 'get_state',
+                    id: 'test-state'
+                });
             }
-        })
-        .catch(err => {
-            console.error('Failed to create session:', err);
-            this.updateStatus('Session creation failed', false);
-        });
+        }, 1000);
     }
 
     handleEvent(event) {
-        console.log('Received event:', event.type, event);
+        console.log('Processing event:', event);
 
-        switch (event.type) {
-            case 'response':
-                // Session creation confirmation
-                if (event.command === 'create' || event.success) {
-                    // Already handled
+        if (event.type === 'response') {
+            if (event.command === 'get_state') {
+                if (event.success) {
+                    this.isAgentConnected = true;
+                    this.updateStatus('Agent connected! You can now chat.', true);
+                } else if (event.command === 'get_state') {
+                    console.log('Agent state query failed, agent may be initializing');
                 }
-                break;
-
+            }
+        }
+        
+        switch (event.type) {
             case 'message_update':
                 this.renderMessageUpdate(event);
                 break;
 
             case 'message_end':
-                this.updateStatus('Agent response complete', true);
+                this.updateStatus('Response complete', true);
                 break;
 
             case 'agent_end':
@@ -132,18 +134,30 @@ class PiClient {
                 });
                 break;
 
-            case 'turn_end':
-                // Tool calls and results
-                break;
-
             case 'tool_execution_start':
+                // Tool call started
                 break;
 
             case 'tool_execution_end':
+                // Tool call completed
+                break;
+
+            case 'turn_start':
+                break;
+
+            case 'turn_end':
                 break;
 
             case 'error':
                 this.updateStatus(`Error: ${event.errorMessage}`, false);
+                break;
+                
+            case 'agent_start':
+                this.updateStatus('Agent is starting...', false);
+                break;
+                
+            case 'agent_end':
+                this.updateStatus('Agent processing complete', true);
                 break;
         }
     }
@@ -159,10 +173,10 @@ class PiClient {
         let content = '';
         messages.forEach(msg => {
             if (msg.role === 'assistant') {
-                content += ' '.join(msg.content
+                const textContents = msg.content
                     .filter(c => c.type === 'text')
-                    .map(c => c.text)
-                );
+                    .map(c => c.text);
+                content += textContents.join('');
             }
         });
         return content;
@@ -173,7 +187,7 @@ class PiClient {
         messageEl.className = `message ${msg.type}`;
         messageEl.innerHTML = `
             <div class="message-timestamp">${new Date(msg.timestamp).toLocaleTimeString()}</div>
-            <div class="message-content">${msg.content}</div>
+            <div class="message-content">${this.escapeHtml(msg.content)}</div>
         `;
         
         this.messageHistory.push(msg);
@@ -181,8 +195,14 @@ class PiClient {
         this.scrollToBottom();
     }
 
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
     addTyping(text) {
-        let lastMsg = Array.from(document.querySelectorAll('.message.assistant')).pop();
+        let lastMsg = document.querySelector('.message.assistant:last-child');
         if (!lastMsg) {
             lastMsg = document.createElement('div');
             lastMsg.className = 'message assistant';
@@ -190,7 +210,6 @@ class PiClient {
             document.getElementById('message-history').appendChild(lastMsg);
         }
         
-        // Strip timestamp from last message
         lastMsg.querySelector('.message-timestamp').textContent = new Date().toLocaleTimeString();
         lastMsg.querySelector('.message-content').textContent += text;
         this.scrollToBottom();
@@ -238,38 +257,49 @@ class PiClient {
 
         // Send via WebSocket
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({
-                type: 'command',
-                command: {
-                    type: 'prompt',
-                    message: message,
-                    streamingBehavior: 'steer',
-                    id: 'req-' + Date.now()
-                }
-            }));
-
             this.updateStatus('Agent is thinking...', false);
-
-            // Re-enable after small delay
+            
+            this.sendCommand({
+                type: 'prompt',
+                message: message,
+                streamingBehavior: 'steer',
+                id: 'req-' + Date.now()
+            });
+            
+            // Re-enable after delay
             setTimeout(() => {
                 if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                     input.disabled = false;
                     input.focus();
-                    
-                    // Check for streaming (might take time)
-                    setTimeout(() => {
-                        if (input.disabled && !document.querySelector('.message.assistant')) {
-                            // Still showing typing indicator
-                        } else {
-                            input.disabled = false;
-                        }
-                    }, 5000);
                 }
             }, 1000);
         } else {
             this.addMessage({
                 type: 'assistant',
-                content: 'Error: WebSocket not connected. Please refresh.',
+                content: 'Error: Not connected. Refresh the page.',
+                timestamp: Date.now()
+            });
+        }
+    }
+
+    sendCommand(command) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            this.addMessage({
+                type: 'assistant',
+                content: 'Error: WebSocket not connected.',
+                timestamp: Date.now()
+            });
+            return;
+        }
+        
+        try {
+            this.ws.send(JSON.stringify(command));
+            console.log('Sent WebSocket message:', command);
+        } catch (e) {
+            console.error('Failed to send:', e);
+            this.addMessage({
+                type: 'assistant',
+                content: 'Error sending message: ' + e.message,
                 timestamp: Date.now()
             });
         }

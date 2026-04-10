@@ -1,10 +1,10 @@
 """WebSocket handler for real-time event streaming."""
 
 import asyncio
+import json
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-import websockets
 from fastapi import WebSocket
 
 from src.pi_agent import PiRPCConfig, PiSubprocess
@@ -49,10 +49,14 @@ class WebSocketManager:
                 cwd=cwd,
             )
 
+            # Create and start the agent subprocess
+            agent = PiSubprocess(config)
+            await agent.start()
+
             session = WebSocketSession(
                 id=session_id,
                 websocket=websocket,
-                agent=PiSubprocess(config),
+                agent=agent,
                 cwd=cwd,
             )
 
@@ -71,17 +75,10 @@ class WebSocketManager:
         async with self._lock:
             session = self._sessions.pop(session_id, None)
             if session:
-                # Cancel ping task
                 if session_id in self._ping_tasks:
                     self._ping_tasks[session_id].cancel()
-
-                # Stop agent
                 await session.agent.stop()
-
-                # Remove event handlers
                 self._event_handlers.pop(session_id, None)
-
-                # Close websocket
                 try:
                     await session.websocket.close()
                 except Exception:
@@ -120,7 +117,6 @@ class WebSocketManager:
                 await self.send_json(session_id, event)
                 await self.broadcast_message(session_id, event)
         except Exception:
-            # Connection lost
             pass
 
     async def _ping_session(self, session_id: str) -> None:
@@ -133,7 +129,7 @@ class WebSocketManager:
             while self._sessions.get(session_id) == session:
                 await asyncio.sleep(session.ping_interval)
                 await session.websocket.ping()
-        except websockets.exceptions.ConnectionClosed:
+        except Exception:
             pass
 
     async def route_command_to_agent(self, session_id: str, command: dict) -> Any:
@@ -141,6 +137,12 @@ class WebSocketManager:
         session = self._sessions.get(session_id)
         if not session:
             return {"success": False, "error": "Session not found"}
+
+        if not session.agent.is_running:
+            try:
+                await session.agent.start()
+            except Exception as e:
+                return {"success": False, "error": f"Failed to start agent: {e}"}
 
         try:
             result = await session.agent.send_command(command)
@@ -166,24 +168,43 @@ class WebSocketManager:
                 handlers.remove(handler)
 
 
-# Global manager instance
 manager = WebSocketManager()
 
 
 async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
-    """Main WebSocket handler."""
+    """Main WebSocket handler using direct receives."""
     session = await manager.connect(session_id, websocket)
+    print(f"[WEBSOCKET] Connected: {session_id}")
 
     try:
-        async for message in websocket.iter_json():
-            # Route message to agent
-            if message.get("type") == "command":
-                result = await manager.route_command_to_agent(
-                    session_id, message.get("command", {})
-                )
-                await manager.send_json(session_id, result)
+        while True:
+            # Use receive_text to get text messages
+            message = await websocket.receive_text()
+            print(f"[WEBSOCKET] Received: {message}")
+            
+            try:
+                data = json.loads(message)
+            except json.JSONDecodeError:
+                await websocket.send_text(json.dumps({"error": "Invalid JSON"}))
+                continue
+            
+            # Route to agent
+            result = await manager.route_command_to_agent(session_id, data)
+            
+            # Send response back
+            try:
+                await websocket.send_json(result)
+                print(f"[WEBSOCKET] Sent response: {result.get('success')}")
+            except Exception as e:
+                print(f"[WEBSOCKET] Failed to send: {e}")
 
-    except websockets.exceptions.ConnectionClosed:
-        pass
+    except Exception as e:
+        print(f"[WEBSOCKET] Error: {e}")
+        try:
+            await websocket.send_text(json.dumps({"error": str(e)}))
+        except Exception:
+            pass
     finally:
+        print(f"[WEBSOCKET] Disconnecting: {session_id}")
         await manager.disconnect(session_id)
+        print(f"[WEBSOCKET] Disconnected: {session_id}")
