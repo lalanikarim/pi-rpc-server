@@ -45,7 +45,7 @@ class WebSocketManager:
                 model="claude-sonnet-4-20250514",
                 thinking_level="medium",
                 session_dir=None,
-                no_session=False,
+                no_session=True,  # Use --no-session to load local models from ~/.pi/agent/
                 cwd=cwd,
             )
 
@@ -181,15 +181,15 @@ async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
         while True:
             message = await websocket.receive_text()
             print(f"[WEBSOCKET] Received: {message}")
-            
+
             try:
                 data = json.loads(message)
             except json.JSONDecodeError:
                 await websocket.send_text(json.dumps({"error": "Invalid JSON"}))
                 continue
-            
+
             result = await manager.route_command_to_agent(session_id, data)
-            
+
             try:
                 await websocket.send_json(result)
                 print(f"[WEBSOCKET] Sent response: {result.get('success')}")

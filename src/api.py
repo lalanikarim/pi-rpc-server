@@ -128,7 +128,7 @@ async def create_session(
         model=config.model_id,
         thinking_level="medium",
         session_dir=None,
-        no_session=False,
+        no_session=True,
         cwd=cwd,
     )
 

@@ -191,6 +191,8 @@ class PiClient {
         
         select.innerHTML = '';
         
+        console.log('Model load data:', data);
+        
         if (data.success && data.models && data.models.length > 0) {
             data.models.forEach(model => {
                 const provider = model.provider || 'anthropic';
@@ -202,13 +204,17 @@ class PiClient {
                 option.value = value;
                 option.textContent = name;
                 
-                const current = data.current || {};
-                const currentModel = current.model || current;
-                const isCurrent = (currentModel.id === modelId && currentModel.provider === provider);
-                
-                if (isCurrent) {
-                    option.selected = true;
+                // If no current model is set, select the first one
+                if (!data.current && data.models.length === 75) {
+                    console.log('Selecting first model as default');
                     this.selectedModel = modelId;
+                    option.selected = true;
+                } else if (!data.current && data.models.length > 0) {
+                    // Select first available
+                    if (data.models.indexOf(model) === 0) {
+                        option.selected = true;
+                        this.selectedModel = modelId;
+                    }
                 }
                 
                 select.appendChild(option);
@@ -216,7 +222,7 @@ class PiClient {
         } else {
             const option = document.createElement('option');
             option.disabled = true;
-            option.textContent = 'No models available - configure in pi agent';
+            option.textContent = 'No models available - check agent console';
             select.appendChild(option);
             
             console.warn('No models available from agent:', data);
