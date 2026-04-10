@@ -2,7 +2,6 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pi RPC Server</title>
     <style>
         :root {
@@ -13,216 +12,134 @@
             --border-color: #3c3c3c;
             --accent: #0e639c;
             --success: #4ec9b0;
-            --warning: #dcdcaa;
         }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background-color: var(--bg-primary);
-            color: var(--text-primary);
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-
-        header {
-            background-color: var(--bg-secondary);
-            padding: 1rem;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        h1 {
-            font-size: 1.2rem;
-            color: var(--text-secondary);
-        }
-
-        .status {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .status-indicator {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background-color: #ff4444;
-        }
-
-        .status-indicator.connected {
-            background-color: var(--success);
-        }
-
-        .main-container {
-            display: flex;
-            flex: 1;
-            overflow: hidden;
-        }
-
-        #message-history {
-            flex: 1;
-            overflow-y: auto;
-            padding: 1rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-
-        .message {
-            max-width: 80%;
-            padding: 0.75rem 1rem;
-            border-radius: 8px;
-            line-height: 1.5;
-        }
-
-        .message.user {
-            background-color: var(--accent);
-            align-self: flex-end;
-        }
-
-        .message.assistant {
-            background-color: var(--bg-secondary);
-            align-self: flex-start;
-            border: 1px solid var(--border-color);
-        }
-
-        .message.tool-call {
-            background-color: var(--bg-primary);
-            border: 1px solid var(--border-color);
-            border-left: 3px solid var(--warning);
-            font-family: monospace;
-            font-size: 0.85rem;
-        }
-
-        .message.tool-result {
-            background-color: var(--bg-primary);
-            border: 1px solid var(--border-color);
-            border-left: 3px solid var(--success);
-            font-family: monospace;
-            font-size: 0.85rem;
-        }
-
-        .message-content {
-            white-space: pre-wrap;
-        }
-
-        .thinking-block {
-            background-color: var(--bg-primary);
-            padding: 0.5rem;
-            margin: 0.5rem 0;
-            border-radius: 4px;
-            font-size: 0.9rem;
-        }
-
-        .thinking-title {
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-            margin-bottom: 0.5rem;
-            cursor: pointer;
-        }
-
-        .editor {
-            background-color: var(--bg-secondary);
-            padding: 1rem;
-            border-top: 1px solid var(--border-color);
-        }
-
-        .editor-content {
-            display: flex;
-            gap: 1rem;
-            align-items: flex-start;
-        }
-
-        #prompt-input {
-            flex: 1;
-            background-color: var(--bg-primary);
-            color: var(--text-primary);
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-            padding: 0.75rem 1rem;
-            font-size: 1rem;
-            resize: none;
-            min-height: 60px;
-            max-height: 200px;
-            font-family: inherit;
-        }
-
-        #prompt-input:focus {
-            outline: none;
-            border-color: var(--accent);
-        }
-
-        button {
-            background-color: var(--accent);
-            color: white;
-            border: none;
-            padding: 0.75rem 1.5rem;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.9rem;
-        }
-
-        button:hover {
-            background-color: #1177bb;
-        }
-
-        button:disabled {
-            background-color: var(--border-color);
-            cursor: not-allowed;
-        }
-
-        .typing-indicator {
-            display: inline-block;
-        }
-
-        .typing-indicator::after {
-            content: '...';
-            animation: typing 1.5s infinite;
-        }
-
-        @keyframes typing {
-            0%, 20% { content: '...'; }
-            40% { content: '.'; }
-            60% { content: '..'; }
-            80%, 100% { content: '...'; }
-        }
-
-        #connection-status {
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg-primary); color: var(--text-primary); height: 100vh; display: flex; flex-direction: column; }
+        header { background: var(--bg-secondary); padding: 1rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        h1 { font-size: 1.1rem; margin: 0; }
+        .status { display: flex; gap: 8px; align-items: center; }
+        .badge { padding: 2px 8px; border-radius: 3px; font-size: 0.8rem; display: flex; align-items: center; gap: 4px; }
+        .badge.connected { background: var(--success); color: #111; }
+        .badge.disconnected { background: #ff4444; color: white; }
+        
+        #setup-panel { padding: 2rem; display: flex; flex-direction: column; gap: 1rem; }
+        .form-group { display: flex; flex-direction: column; gap: 0.5rem; }
+        label { font-weight: 500; }
+        select, input[type="text"] { padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary); color: var(--text-primary); font-size: 1rem; }
+        button { background: var(--accent); color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+        button:hover { opacity: 0.9; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .config-section { background: var(--bg-secondary); padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+        .config-section h3 { margin-bottom: 0.5rem; color: var(--text-secondary); }
+        
+        /* Active session UI (hidden initially) */
+        .session-ui { display: none; flex-direction: column; height: 100%; }
+        .session-ui.active { display: flex; }
+        
+        /* Model selector */
+        .model-selector { display: flex; gap: 0.5rem; align-items: center; }
+        .model-selector select { min-width: 200px; }
+        .model-selector button { padding: 0.4rem 0.8rem; font-size: 0.8rem; }
+        
+        #sessions-panel { display: flex; gap: 1rem; flex: 1; overflow: hidden; }
+        #session-list { width: 300px; background: var(--bg-secondary); border-right: 1px solid var(--border-color); overflow-y: auto; }
+        .session-item { padding: 0.75rem; border-bottom: 1px solid var(--border-color); cursor: pointer; }
+        .session-item:hover { background: #2a2a2c; }
+        .session-item.active { background: #37373d; border-left: 3px solid var(--accent); }
+        .session-item-name { font-weight: 500; margin-bottom: 0.25rem; }
+        .session-item-id { font-size: 0.8rem; color: var(--text-secondary); font-family: monospace; }
+        .session-item-status { font-size: 0.75rem; margin-top: 0.25rem; }
+        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+        .status-dot.active { background: var(--success); }
+        .status-dot.inactive { background: #ff4444; }
+        
+        #message-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        #message-history { flex: 1; overflow-y: auto; padding: 1rem; }
+        .message { max-width: 85%; margin-bottom: 1rem; padding: 0.75rem 1rem; border-radius: 8px; line-height: 1.5; }
+        .message.user { background: var(--accent); align-self: flex-end; }
+        .message.assistant { background: var(--bg-secondary); border: 1px solid var(--border-color); }
+        .message.tool-call { background: var(--bg-primary); border: 1px solid var(--border-color); border-left: 3px solid #dcdcaa; font-family: monospace; font-size: 0.85rem; }
+        .message-timestamp { font-size: 0.7rem; opacity: 0.7; margin-bottom: 0.25rem; }
+        
+        .editor { background: var(--bg-secondary); padding: 1rem; border-top: 1px solid var(--border-color); }
+        .editor-content { display: flex; gap: 1rem; align-items: flex-start; }
+        #prompt-input { flex: 1; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; padding: 0.75rem; font-size: 1rem; resize: none; height: 60px; font-family: inherit; }
+        #prompt-input:focus { outline: none; border-color: var(--accent); }
+        
+        .loading { padding: 2rem; text-align: center; color: var(--text-secondary); }
     </style>
 </head>
 <body>
-    <header>
+    <!-- Setup Panel (initially shown) -->
+    <div id="setup-panel">
         <h1>Pi RPC Server</h1>
-        <div class="status">
-            <div id="status-indicator" class="status-indicator"></div>
-            <span id="connection-status">Disconnected</span>
-            <button id="clear-btn">Clear</button>
+        <div class="config-section" style="max-width: 600px;">
+            <h3>Select Working Directory</h3>
+            <div class="form-group">
+                <label for="cwd-select">Choose a workspace:</label>
+                <select id="cwd-select">
+                    <option value="project">Your current project repo (detected from browser)</option>
+                    <option value="~/">Home directory (~)</option>
+                    <option value="/Users/karim">Karim's home</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <button onclick="loadSessionsAvailable()" id="load-sessions">Load Available Agents</button>
+            </div>
         </div>
-    </header>
-
-    <div class="main-container">
-        <div id="message-history"></div>
-    </div>
-
-    <div class="editor">
-        <div class="editor-content">
-            <textarea id="prompt-input" placeholder="Type your message... (Shift+Enter for new line)"></textarea>
-            <button id="send-btn">Send</button>
+        
+        <div class="config-section" style="max-width: 600px;" id="available-sessions" style="display:none;">
+            <h3>Available Agent Sessions</h3>
+            <div class="form-group">
+                <label for="agent-select">Choose an existing agent:</label>
+                <select id="agent-select" onchange="onAgentSelect()">
+                    <option value="">Create new agent...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <button onclick="startSession()">Start Session ↬</button>
+            </div>
         </div>
     </div>
-
+    
+    <!-- Active Session UI (hidden initially) -->
+    <div id="session-ui" class="session-ui">
+        <header>
+            <h1>Pi RPC Server</h1>
+            <div class="status">
+                <div class="badge disconnected" id="connection-badge">Disconnected</div>
+                <div class="model-selector">
+                    <select id="model-select" onchange="selectModel()">
+                        <option value="">Loading models...</option>
+                    </select>
+                    <button onclick="refreshModels()">Refresh</button>
+                </div>
+            </div>
+        </header>
+        
+        <div id="sessions-panel">
+            <div id="session-list">
+                <div id="session-tab-btn" class="session-item active" onclick="switchTab('messages')">
+                    <div class="session-item-name">Messages</div>
+                    <div class="session-item-id">Current session</div>
+                </div>
+                <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 0;">
+                <div id="session-history" style="padding: 1rem;"></div>
+            </div>
+            
+            <div id="message-area">
+                <div id="message-history"></div>
+                <div class="editor">
+                    <div class="editor-content">
+                        <textarea id="prompt-input" placeholder="Type your message..."></textarea>
+                        <button onclick="sendPrompt()">Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <script src="/static/app.js"></script>
 </body>
 </html>

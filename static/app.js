@@ -1,312 +1,325 @@
 /**
  * Pi RPC Server - Frontend JavaScript Client
- * Handles WebSocket connections and real-time messaging
  */
 
 class PiClient {
-    constructor(baseUrl = window.location.origin) {
-        this.baseUrl = baseUrl;
+    constructor() {
+        this.baseUrl = window.location.origin;
         this.sessionId = null;
         this.ws = null;
-        this.retryCount = 0;
-        this.maxRetries = 5;
         this.messageHistory = [];
-        this.isAgentConnected = false;
-        
+        this.selectedCwd = null;
         this.init();
     }
-
+    
     init() {
         this.bindEvents();
-        this.connect();
-        this.updateStatus('Connecting agent...', false);
     }
-
+    
     bindEvents() {
-        // Send button
-        document.getElementById('send-btn').addEventListener('click', () => this.sendPrompt());
-
-        // Enter key to send (Shift+Enter for new line)
         document.getElementById('prompt-input').addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 this.sendPrompt();
             }
         });
-
-        // Clear button
-        document.getElementById('clear-btn').addEventListener('click', () => this.clearMessages());
     }
-
-    connect() {
-        // Create or reuse session
-        this.sessionId = 'session-' + Math.random().toString(36).substr(2, 9) + '-' + Date.now();
+    
+    // Session Setup
+    async loadSessionsAvailable() {
+        try {
+            const cwd = document.getElementById('cwd-select').value;
+            const response = await fetch(`${this.baseUrl}/api/sessions/available?cwd=${cwd}`);
+            const data = await response.json();
+            
+            const select = document.getElementById('agent-select');
+            select.innerHTML = '<option value="">Create new agent...</option>';
+            
+            if (data.sessions && data.sessions.length > 0) {
+                data.sessions.forEach(session => {
+                    const option = document.createElement('option');
+                    option.value = JSON.stringify({
+                        id: session.id,
+                        path: session.path,
+                        name: session.name || 'Unnamed session'
+                    });
+                    option.textContent = `[Agent] ${session.name || 'Unnamed'} (${session.path.split('/').slice(-2).join('/')})`;
+                    select.appendChild(option);
+                });
+            } else {
+                const option = document.createElement('option');
+                option.value = 'new';
+                option.textContent = 'No sessions found - this is fine!';
+                select.appendChild(option);
+                select.addEventListener('change', onNewSessionCreation);
+            }
+            
+            document.getElementById('available-sessions').style.display = 'block';
+        } catch (err) {
+            console.error('Failed to load sessions:', err);
+            alert('Failed to load sessions: ' + err.message);
+        }
+    }
+    
+    onAgentSelect() {
+        // Handle agent selection logic
+    }
+    
+    async startSession() {
+        const cwd = document.getElementById('cwd-select').value;
+        const agentSelect = document.getElementById('agent-select');
+        const agentValue = agentSelect.value;
+        
+        let model_id = 'claude-sonnet-4-20250514';
+        let provider = 'anthropic';
+        
+        // Try to get existing session or create new one
+        if (agentValue && agentValue !== 'new') {
+            const agentInfo = JSON.parse(agentValue);
+            this.sessionId = agentInfo.id;
+            // We might need to switch to this session - for now use it as base
+        } else {
+            // Create new session
+            const response = await fetch(`${this.baseUrl}/api/sessions?cwd=${cwd}&provider=anthropic&model_id=claude-sonnet-4-20250514`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    provider: 'anthropic',
+                    model_id: model_id
+                })
+            });
+            
+            const data = await response.json();
+            this.sessionId = data.session_id;
+        }
+        
+        // Switch to session UI
+        document.getElementById('setup-panel').style.display = 'none';
+        document.getElementById('session-ui').classList.add('active');
+        
+        // Initialize WebSocket and load models
+        await this.initWebSocket();
+    }
+    
+    async initWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${this.baseUrl.split('://')[1]}/ws/${this.sessionId}`;
         
-        this.updateStatus('Connecting WebSocket...', false);
         this.ws = new WebSocket(wsUrl);
-
         this.ws.onopen = () => {
-            this.retryCount = 0;
-            console.log('WebSocket opened to:', wsUrl);
-            this.updateStatus('WebSocket connected!', true);
-            
-            // Create agent session in the background
-            this.createAgentSession();
+            this.updateConnectionBadge('connected');
+            console.log('WebSocket connected');
+            this.loadModels();
         };
-
+        
         this.ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
-            console.log('Received WebSocket message:', data.type, data);
-            this.handleEvent(data);
+            this.handleWebSocketMessage(data);
         };
-
-        this.ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            this.updateStatus('Connection error', false);
-        };
-
+        
         this.ws.onclose = () => {
-            this.updateStatus('WebSocket closed', false);
-            this.handleDisconnect();
+            this.updateConnectionBadge('disconnected');
+            console.log('WebSocket closed');
+        };
+        
+        this.ws.onerror = (err) => {
+            console.error('WebSocket error:', err);
         };
     }
-
-    handleDisconnect() {
-        if (this.retryCount < this.maxRetries) {
-            this.retryCount++;
-            const delay = Math.min(1000 * Math.pow(2, this.retryCount), 10000);
-            console.log(`Reconnecting in ${delay}ms... (${this.retryCount}/${this.maxRetries})`);
-            this.updateStatus(`Reconnecting... (${this.retryCount})`, false);
+    
+    async loadModels() {
+        try {
+            // In RPC mode, we need to get models from the agent
+            const response = await fetch(`${this.baseUrl}/api/sessions/${this.sessionId}/state`);
+            const data = await response.json();
             
-            setTimeout(() => this.connect(), delay);
+            if (data.success && data.state) {
+                // Get model info from state
+                const state = data.state;
+                const currentModel = state.model || {};
+                
+                // For now, show available model options
+                const select = document.getElementById('model-select');
+                const models = [
+                    {id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4'},
+                    {id: 'claude-haiku-3-5-20241022', name: 'Claude Haiku 3.5'},
+                    {id: 'gpt-4o', name: 'GPT-4o'},
+                    {id: 'gpt-4o-mini', name: 'GPT-4o Mini'},
+                ];
+                
+                select.innerHTML = '';
+                models.forEach(m => {
+                    const option = document.createElement('option');
+                    option.value = m.id;
+                    option.textContent = m.name;
+                    option.selected = (m.id === currentModel.id);
+                    select.appendChild(option);
+                });
+                
+                this.selectedModel = currentModel.id;
+            }
+        } catch (err) {
+            console.error('Failed to load models:', err);
+        }
+    }
+    
+    selectModel() {
+        this.selectedModel = document.getElementById('model-select').value;
+        // Update the agent's model
+        fetch(`${this.baseUrl}/api/sessions/${this.sessionId}/model`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                provider: 'anthropic',
+                model_id: this.selectedModel
+            })
+        }).catch(err => console.error('Failed to set model:', err));
+    }
+    
+    refreshModels() {
+        this.loadModels();
+    }
+    
+    updateConnectionBadge(status) {
+        const badge = document.getElementById('connection-badge');
+        if (status === 'connected') {
+            badge.className = 'badge connected';
+            badge.textContent = 'Connected';
         } else {
-            this.updateStatus('Max reconnection attempts reached', false);
+            badge.className = 'badge disconnected';
+            badge.textContent = 'Disconnected';
         }
     }
-
-    createAgentSession() {
-        // We'll create the session via REST API, but we need to associate it with our WS session
-        // For now, just wait for the agent to be ready
+    
+    handleWebSocketMessage(data) {
+        console.log('Received:', data);
         
-        // Check if the agent is responding via our WebSocket
-        setTimeout(() => {
-            // Send a test command to verify the agent is ready
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.sendCommand({
-                    type: 'get_state',
-                    id: 'test-state'
-                });
-            }
-        }, 1000);
-    }
-
-    handleEvent(event) {
-        console.log('Processing event:', event);
-
-        if (event.type === 'response') {
-            if (event.command === 'get_state') {
-                if (event.success) {
-                    this.isAgentConnected = true;
-                    this.updateStatus('Agent connected! You can now chat.', true);
-                } else if (event.command === 'get_state') {
-                    console.log('Agent state query failed, agent may be initializing');
-                }
+        if (data.type === 'response') {
+            if (data.command === 'get_state' && data.success && data.data) {
+                this.selectedCwd = data.data.cwd || null;
             }
         }
         
-        switch (event.type) {
-            case 'message_update':
-                this.renderMessageUpdate(event);
-                break;
-
-            case 'message_end':
-                this.updateStatus('Response complete', true);
-                break;
-
-            case 'agent_end':
-                this.messageHistory = event.messages;
-                this.addMessage({
-                    type: 'assistant',
-                    content: this.formatAgentMessage(event.messages),
-                    timestamp: Date.now()
-                });
-                break;
-
-            case 'tool_execution_start':
-                // Tool call started
-                break;
-
-            case 'tool_execution_end':
-                // Tool call completed
-                break;
-
-            case 'turn_start':
-                break;
-
-            case 'turn_end':
-                break;
-
-            case 'error':
-                this.updateStatus(`Error: ${event.errorMessage}`, false);
-                break;
-                
-            case 'agent_start':
-                this.updateStatus('Agent is starting...', false);
-                break;
-                
-            case 'agent_end':
-                this.updateStatus('Agent processing complete', true);
-                break;
+        if (data.type === 'message_update') {
+            if (data.assistantMessageEvent.type === 'text_delta') {
+                this.addTyping(data.assistantMessageEvent.delta);
+            }
+        }
+        
+        if (data.type === 'agent_end') {
+            this.addMessage({
+                type: 'assistant',
+                content: this.extractTextFromMessages(data.messages),
+                timestamp: Date.now()
+            });
         }
     }
-
-    renderMessageUpdate(event) {
-        const delta = event.assistantMessageEvent.delta;
-        if (event.assistantMessageEvent.type === 'text_delta') {
-            this.addTyping(delta);
-        }
-    }
-
-    formatAgentMessage(messages) {
-        let content = '';
+    
+    extractTextFromMessages(messages) {
+        let text = '';
         messages.forEach(msg => {
             if (msg.role === 'assistant') {
-                const textContents = msg.content
-                    .filter(c => c.type === 'text')
-                    .map(c => c.text);
-                content += textContents.join('');
+                const texts = msg.content?.filter(c => c.type === 'text').map(c => c.text) || [];
+                text += texts.join('');
             }
         });
-        return content;
+        return text;
     }
-
-    addMessage(msg) {
-        const messageEl = document.createElement('div');
-        messageEl.className = `message ${msg.type}`;
-        messageEl.innerHTML = `
-            <div class="message-timestamp">${new Date(msg.timestamp).toLocaleTimeString()}</div>
-            <div class="message-content">${this.escapeHtml(msg.content)}</div>
-        `;
-        
-        this.messageHistory.push(msg);
-        document.getElementById('message-history').appendChild(messageEl);
-        this.scrollToBottom();
-    }
-
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    addTyping(text) {
-        let lastMsg = document.querySelector('.message.assistant:last-child');
-        if (!lastMsg) {
-            lastMsg = document.createElement('div');
-            lastMsg.className = 'message assistant';
-            lastMsg.innerHTML = '<div class="message-timestamp"></div><div class="message-content"></div>';
-            document.getElementById('message-history').appendChild(lastMsg);
-        }
-        
-        lastMsg.querySelector('.message-timestamp').textContent = new Date().toLocaleTimeString();
-        lastMsg.querySelector('.message-content').textContent += text;
-        this.scrollToBottom();
-    }
-
-    scrollToBottom() {
-        const container = document.getElementById('message-history');
-        container.scrollTop = container.scrollHeight;
-    }
-
-    clearMessages() {
-        document.getElementById('message-history').innerHTML = '';
-        this.messageHistory = [];
-    }
-
-    updateStatus(text, isOnline) {
-        const indicator = document.getElementById('status-indicator');
-        const statusText = document.getElementById('connection-status');
-        
-        statusText.textContent = text;
-        indicator.classList.toggle('connected', isOnline);
-        
-        if (!isOnline) {
-            indicator.style.backgroundColor = '#ff4444';
-        } else {
-            indicator.style.backgroundColor = '#4ec9b0';
-        }
-    }
-
+    
     sendPrompt() {
         const input = document.getElementById('prompt-input');
         const message = input.value.trim();
-        
         if (!message) return;
-
+        
         // Add user message
         this.addMessage({
             type: 'user',
             content: message,
             timestamp: Date.now()
         });
-
+        
         input.value = '';
         input.disabled = true;
-
-        // Send via WebSocket
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.updateStatus('Agent is thinking...', false);
-            
-            this.sendCommand({
+        
+        if (this.ws?.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({
                 type: 'prompt',
                 message: message,
                 streamingBehavior: 'steer',
                 id: 'req-' + Date.now()
-            });
-            
-            // Re-enable after delay
-            setTimeout(() => {
-                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                    input.disabled = false;
-                    input.focus();
-                }
-            }, 1000);
+            }));
         } else {
             this.addMessage({
                 type: 'assistant',
-                content: 'Error: Not connected. Refresh the page.',
+                content: 'Error: Not connected',
                 timestamp: Date.now()
             });
-        }
-    }
-
-    sendCommand(command) {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            this.addMessage({
-                type: 'assistant',
-                content: 'Error: WebSocket not connected.',
-                timestamp: Date.now()
-            });
-            return;
         }
         
-        try {
-            this.ws.send(JSON.stringify(command));
-            console.log('Sent WebSocket message:', command);
-        } catch (e) {
-            console.error('Failed to send:', e);
-            this.addMessage({
-                type: 'assistant',
-                content: 'Error sending message: ' + e.message,
-                timestamp: Date.now()
-            });
+        setTimeout(() => {
+            if (this.ws?.readyState === WebSocket.OPEN) {
+                input.disabled = false;
+            }
+        }, 1000);
+    }
+    
+    addMessage(msg) {
+        const el = document.createElement('div');
+        el.className = `message ${msg.type}`;
+        el.innerHTML = `
+            <div class="message-timestamp">${new Date(msg.timestamp).toLocaleTimeString()}</div>
+            <div class="message-content">${this.escapeHtml(msg.content)}</div>
+        `;
+        document.getElementById('message-history').appendChild(el);
+        this.scrollToBottom();
+    }
+    
+    addTyping(text) {
+        let lastMsg = Array.from(document.querySelectorAll('.message.assistant')).pop();
+        if (!lastMsg) {
+            lastMsg = document.createElement('div');
+            lastMsg.className = 'message assistant';
+            lastMsg.innerHTML = '<div class="message-timestamp"></div><div class="message-content"></div>';
+            document.getElementById('message-history').appendChild(lastMsg);
         }
+        lastMsg.querySelector('.message-timestamp').textContent = new Date().toLocaleTimeString();
+        lastMsg.querySelector('.message-content').textContent += text;
+        this.scrollToBottom();
+    }
+    
+    scrollToBottom() {
+        document.getElementById('message-history').scrollTop = 
+            document.getElementById('message-history').scrollHeight;
+    }
+    
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 }
 
-// Initialize on page load
+function onNewSessionCreation() {
+    // Default behavior - create new session
+    startSession();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-    new PiClient();
+    window.piClient = new PiClient();
 });
+
+function loadSessionsAvailable() {
+    window.piClient.loadSessionsAvailable();
+}
+
+function startSession() {
+    window.piClient.startSession();
+}
+
+function selectModel() {
+    window.piClient.selectModel();
+}
+
+function refreshModels() {
+    window.piClient.refreshModels();
+}

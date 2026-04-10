@@ -1,7 +1,10 @@
 """FastAPI REST API routes and Pydantic models."""
 
 import asyncio
+import json
+import os
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException, Query
@@ -15,325 +18,259 @@ from src.websocket_handler import WebSocketSession, manager
 router = APIRouter(prefix="/api", tags=["api"])
 
 
-# Pydantic models for request/response validation
-
-
 class ModelSelection(BaseModel):
     """Model selection request."""
-
     provider: str = Field(..., min_length=1)
     model_id: str = Field(..., min_length=1)
 
 
 class ThinkingLevel(BaseModel):
     """Thinking level configuration."""
-
-    level: str = Field(
-        default="medium", pattern="^(off|minimal|low|medium|high|xhigh)$"
-    )
-
-
-class ModelInfo(BaseModel):
-    """Model information."""
-
-    id: str
-    name: str
-    api: str
-    provider: str
-    baseUrl: str | None = None
+    level: str = Field(default="medium", pattern="^(off|minimal|low|medium|high|xhigh)$")
 
 
 class CompactRequest(BaseModel):
     """Compact request."""
-
     session_id: str
     custom_instructions: str | None = None
 
 
 class BashRequest(BaseModel):
     """Bash command request."""
-
     session_id: str
     command: str = Field(..., min_length=1)
 
 
-# Helper functions
+class SessionListItem(BaseModel):
+    """List item for session."""
+    id: str
+    path: str
+    name: str | None = None
+    is_forkable: bool = False
+    entryCount: int = 0
 
 
-async def _get_session_agent(
-    session_id: str,
-) -> tuple[WebSocketSession, PiSubprocess, str]:
-    """Get agent and config for session."""
-    session = manager._sessions.get(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-    return session, session.agent, session.cwd
+@router.get("/sessions/available")
+async def get_available_sessions(cwd: str | None = Query(None, description="Working directory to list sessions from")):
+    """Get list of available agent sessions from filesystem."""
+    search_dir: Path | None = Path(cwd) if cwd else (Path.home() / ".pi" / "agent" / "sessions")
+    
+    sessions = []
+    if search_dir and search_dir.exists():
+        for session_file in search_dir.glob("*.jsonl"):
+            session_id = session_file.stem
+            meta = None
+            try:
+                with open(session_file, "r") as f:
+                    for line in f:
+                        if line.strip():
+                            meta = json.loads(line)
+                            break
+            except Exception:
+                pass
+            
+            sessions.append({
+                "id": session_id,
+                "path": str(session_file),
+                "name": meta.get("meta", {}).get("displayName") if meta else None,
+                "is_forkable": True,
+                "entryCount": meta.get("meta", {}).get("entryCount", 0) if meta else 0
+            })
+    
+    return {"sessions": sessions, "directory": str(search_dir) if search_dir else None}
 
 
-# Session endpoints
+@router.get("/sessions/list")
+async def list_active_sessions():
+    """List active WebSocket sessions."""
+    return {
+        "sessions": [
+            {"id": sid, "active": sa.agent.is_active, "cwd": sa.cwd}
+            for sid, sa in manager._sessions.items()
+        ]
+    }
+
+
+@router.get("/sessions")
+async def list_all_sessions(cwd: str | None = Query(None)):
+    """List all pi agent sessions."""
+    return await get_available_sessions(cwd=cwd)
 
 
 @router.post("/sessions")
 async def create_session(
     config: ModelSelection = Body(),
-    session_id: str = Query(None, description="Optional custom session ID"),
-    cwd: str = Query(None, description="Working directory for the Pi agent"),
+    session_id: str | None = Query(None),
+    cwd: str = Query(None, description="Working directory"),
 ):
-    """Create a new pi agent session."""
+    """Create new pi agent session."""
     session_id = session_id or str(uuid.uuid4())
-
-    # Get or create agent
+    
     if session_id in manager._sessions:
-        raise HTTPException(status_code=409, detail="Session already exists")
-
+        raise HTTPException(status_code=409, detail="Session exists")
+    
     pi_config = PiRPCConfig(
         provider=config.provider,
         model=config.model_id,
         thinking_level="medium",
         session_dir=None,
         no_session=False,
-        cwd=cwd if cwd else None,
+        cwd=cwd,
     )
-
-    # Create and start agent
-    subprocess_agent = PiSubprocess(pi_config)
-    await subprocess_agent.start()
-
-    # Add to manager
+    
+    agent = PiSubprocess(pi_config)
+    await agent.start()
+    
     session = WebSocketSession(
-        id=session_id,
-        websocket=None,  # No WebSocket for REST session
-        agent=subprocess_agent,
-        cwd=cwd if cwd else None,
+        id=session_id, websocket=None, agent=agent, cwd=cwd,
     )
-
+    
     manager._sessions[session_id] = session
     manager._event_handlers[session_id] = []
-
     asyncio.create_task(manager._stream_events(session_id))
-
-    return {"session_id": session_id, "status": "started"}
-
-
-@router.get("/sessions")
-async def list_sessions():
-    """List all active sessions."""
-    sessions = [
-        {"id": sid, "active": sa.agent.is_active}
-        for sid, sa in manager._sessions.items()
-    ]
-    return {"sessions": sessions}
+    
+    return {"session_id": session_id, "status": "started", "cwd": cwd}
 
 
 @router.get("/sessions/{session_id}")
 async def get_session(session_id: str):
     """Get session details."""
-    session, agent, cwd = await _get_session_agent(session_id)
-
-    return {
-        "session_id": session_id,
-        "agent_active": agent.is_active,
-        "cwd": cwd,
-    }
+    session, agent, cwd = await _get_session(session_id)
+    return {"id": session_id, "active": agent.is_active, "cwd": cwd}
 
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
-    """Delete a session."""
+    """Delete session."""
     await manager.disconnect(session_id)
-    return {"session_id": session_id, "status": "deleted"}
+    return {"deleted": session_id}
 
 
-@router.post("/sessions/{session_id}/compact")
-async def compact_session(request: CompactRequest):
-    """Compact the conversation context."""
-    session, agent, _ = await _get_session_agent(request.session_id)
+### Model endpoints
 
-    cmd = {
-        "type": "compact",
-        "customInstructions": request.custom_instructions,
-    }
-
-    result = await agent.send_command(cmd)
-
-    return {
-        "success": result.get("success"),
-        "tokens_before": result.get("data", {}).get("tokensBefore"),
-        "summary": result.get("data", {}).get("summary"),
-    }
-
-
-@router.post("/sessions/{session_id}/bash")
-async def execute_bash(request: BashRequest):
-    """Execute a bash command and add output to session context."""
-    session, agent, _ = await _get_session_agent(request.session_id)
-
-    result = await agent.send_command(
-        {
-            "type": "bash",
-            "command": request.command,
-        }
-    )
-
-    return {
-        "success": result.get("success"),
-        "output": result.get("data", {}).get("output"),
-        "exitCode": result.get("data", {}).get("exitCode"),
-    }
-
-
-# Model endpoints
-
-
-@router.post("/models/current")
-async def set_model(
-    session_id: str,
-    config: ModelSelection,
-):
-    """Set the current model."""
-    session, agent, cwd = await _get_session_agent(session_id)
-
-    result = await agent.send_command(
-        {
-            "type": "set_model",
-            "provider": config.provider,
-            "modelId": config.model_id,
-        }
-    )
-
-    return {"success": result.get("success"), "model": result.get("data")}
-
-
-@router.post("/models/current/cycle")
-async def cycle_model(session_id: str):
-    """Cycle to next available model."""
-    session, agent, cwd = await _get_session_agent(session_id)
-
-    result = await agent.send_command({"type": "cycle_model"})
-
-    return {
-        "success": result.get("success"),
-        "model": result.get("data", {}).get("model"),
-        "thinkingLevel": result.get("data", {}).get("thinkingLevel"),
-    }
-
-
-# Thinking level endpoints
-
-
-@router.put("/thinking-level")
-async def set_thinking_level(
-    session_id: str,
-    level: ThinkingLevel,
-):
-    """Set the thinking level."""
-    session, agent, cwd = await _get_session_agent(session_id)
-
-    result = await agent.send_command(
-        {
-            "type": "set_thinking_level",
-            "level": level.level,
-        }
-    )
-
+@router.post("/sessions/{session_id}/model")
+async def set_model(session_id: str, config: ModelSelection):
+    """Set model for session."""
+    session, agent, cwd = await _get_session(session_id)
+    result = await agent.send_command({
+        "type": "set_model",
+        "provider": config.provider,
+        "modelId": config.model_id,
+    })
     return {"success": result.get("success")}
 
 
-@router.put("/thinking-level/cycle")
-async def cycle_thinking_level(session_id: str):
-    """Cycle through thinking levels."""
-    session, agent, cwd = await _get_session_agent(session_id)
+@router.post("/sessions/{session_id}/model/cycle")
+async def cycle_model(session_id: str):
+    """Cycle to next model."""
+    session, agent, cwd = await _get_session(session_id)
+    result = await agent.send_command({"type": "cycle_model"})
+    return {"success": result.get("success"), "data": result.get("data")}
 
+
+### Thinking level endpoints
+
+@router.put("/sessions/{session_id}/thinking")
+async def set_thinking(session_id: str, level: ThinkingLevel):
+    """Set thinking level."""
+    session, agent, cwd = await _get_session(session_id)
+    result = await agent.send_command({
+        "type": "set_thinking_level",
+        "level": level.level,
+    })
+    return {"success": result.get("success")}
+
+
+@router.put("/sessions/{session_id}/thinking/cycle")
+async def cycle_thinking(session_id: str):
+    """Cycle thinking level."""
+    session, agent, cwd = await _get_session(session_id)
     result = await agent.send_command({"type": "cycle_thinking_level"})
+    return {"success": result.get("success"), "level": result.get("data", {}).get("level")}
 
+
+### Compaction
+
+@router.post("/sessions/{session_id}/compact")
+async def compact(session_id: str, request: CompactRequest):
+    """Compact session."""
+    session, agent, _ = await _get_session(session_id)
+    result = await agent.send_command({
+        "type": "compact",
+        "customInstructions": request.custom_instructions,
+    })
+    return {"success": result.get("success")}
+
+
+### Bash
+
+@router.post("/sessions/{session_id}/bash")
+async def execute_bash(request: BashRequest):
+    """Execute bash command."""
+    session, agent, _ = await _get_session(request.session_id)
+    result = await agent.send_command({
+        "type": "bash",
+        "command": request.command,
+    })
     return {
         "success": result.get("success"),
-        "level": result.get("data", {}).get("level"),
+        "exitCode": result.get("data", {}).get("exitCode"),
+        "output": result.get("data", {}).get("output"),
     }
 
 
-# Session stats
-
+### Stats & State
 
 @router.get("/sessions/{session_id}/stats")
-async def get_session_stats(session_id: str):
-    """Get session statistics."""
-    session, agent, cwd = await _get_session_agent(session_id)
-
+async def get_stats(session_id: str):
+    """Get session stats."""
+    session, agent, cwd = await _get_session(session_id)
     result = await agent.send_command({"type": "get_session_stats"})
-
-    return {
-        "success": result.get("success"),
-        "stats": result.get("data"),
-    }
+    return {"success": result.get("success"), "stats": result.get("data")}
 
 
 @router.get("/sessions/{session_id}/state")
-async def get_session_state(session_id: str):
-    """Get current session state."""
-    session, agent, cwd = await _get_session_agent(session_id)
-
+async def get_state(session_id: str):
+    """Get current state."""
+    session, agent, cwd = await _get_session(session_id)
     result = await agent.send_command({"type": "get_state"})
-
-    return {
-        "success": result.get("success"),
-        "state": result.get("data"),
-    }
+    return {"success": result.get("success"), "state": result.get("data")}
 
 
 @router.get("/sessions/{session_id}/messages")
-async def get_session_messages(session_id: str):
-    """Get all messages in the conversation."""
-    session, agent, cwd = await _get_session_agent(session_id)
-
+async def get_messages(session_id: str):
+    """Get messages."""
+    session, agent, cwd = await _get_session(session_id)
     result = await agent.send_command({"type": "get_messages"})
-
-    return {
-        "success": result.get("success"),
-        "messages": result.get("data", {}).get("messages"),
-    }
+    return {"messages": result.get("data", {}).get("messages")}
 
 
-@router.get("/sessions/{session_id}/fork-messages")
+@router.get("/sessions/{session_id}/fork")
 async def get_fork_messages(session_id: str):
-    """Get messages available for forking."""
-    session, agent, cwd = await _get_session_agent(session_id)
-
+    """Get fork messages."""
+    session, agent, cwd = await _get_session(session_id)
     result = await agent.send_command({"type": "get_fork_messages"})
-
-    return {
-        "success": result.get("success"),
-        "messages": result.get("data", {}).get("messages"),
-    }
+    return {"messages": result.get("data", {}).get("messages")}
 
 
-# Export
-
+### Export
 
 @router.post("/sessions/{session_id}/export")
-async def export_session(
-    session_id: str,
-    output_path: str = Query(None, description="Optional output path"),
-):
+async def export_session(session_id: str, path: str = Query(None)):
     """Export session to HTML."""
-    session, agent, cwd = await _get_session_agent(session_id)
-
+    session, agent, cwd = await _get_session(session_id)
     cmd = {"type": "export_html"}
-    if output_path:
-        cmd["outputPath"] = output_path
-
+    if path:
+        cmd["outputPath"] = path
     result = await agent.send_command(cmd)
-
-    return {
-        "success": result.get("success"),
-        "path": result.get("data", {}).get("path"),
-    }
+    return {"success": result.get("success"), "path": result.get("data", {}).get("path")}
 
 
-# Utility
+### Helper functions
 
+async def _get_session(session_id: str) -> tuple[WebSocketSession, PiSubprocess, str | None]:
+    session = manager._sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    return session, session.agent, session.cwd
 
-@router.get("/commands")
-async def get_commands():
-    """Get available commands (templates, skills, extensions)."""
-    return {"commands": []}
