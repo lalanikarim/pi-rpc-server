@@ -347,7 +347,8 @@ class PiClient {
             this.ws.send(JSON.stringify({
                 type: 'set_model',
                 provider: provider || 'anthropic',
-                modelId: model_id
+                modelId: model_id,
+                id: 'set_model_' + Date.now()  // Unique ID for correlation
             }));
             
             // Register callback to wait for response
