@@ -339,12 +339,10 @@ class PiClient {
         const [provider, model_id] = modelOption.split('/');
         this.selectedModel = model_id;
         
-        // Disable dropdown during confirmation
-        const select = document.getElementById('model-select');
-        select.disabled = true;
-        select.textContent = 'Switching...';
+        // Disable dropdown during switch
+        this.setSwitchingState(true);
         
-        // Send command via WebSocket
+        // Send set_model command
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({
                 type: 'set_model',
@@ -352,56 +350,47 @@ class PiClient {
                 modelId: model_id
             }));
             
-            // Wait for response then verify with get_state
-            setTimeout(() => this.validateModelChange(model_id, provider || 'anthropic'), 500);
+            // Register callback to wait for response
+            this.modelSwitchCallback = (response) => {
+                if (response.command === 'set_model') {
+                    if (response.success) {
+                        console.log('Model change confirmed');
+                        this.setSwitchingState(false, '✓')
+                    } else {
+                        console.log('Model change failed');
+                        this.setSwitchingState(false, '✗');
+                    }
+                }
+            };
+            
+            // Set timeout if no response
+            setTimeout(() => {
+                if (this.setSwitchingStateTimeout) {
+                    clearTimeout(this.setSwitchingStateTimeout);
+                    this.setSwitchingState(false, '✗');
+                }
+            }, 5000);
         } else {
-            // Re-enable if not connected
-            select.disabled = false;
+            this.setSwitchingState(false);
         }
     }
     
-    validateModelChange(expectedModel, expectedProvider) {
+    setSwitchingState(disabled, status = null) {
         const select = document.getElementById('model-select');
+        select.disabled = disabled;
         
-        // Send get_state to verify
-        this.ws.send(JSON.stringify({
-            type: 'get_state'
-        }));
-        
-        // Wait for state response
-        setTimeout(() => {
-            const stateResponse = this.getStateResponse();
-            
-            if (stateResponse && stateResponse.data?.model) {
-                const currentModel = stateResponse.data.model;
-                
-                if (currentModel.id === expectedModel && currentModel.provider === expectedProvider) {
-                    // Success - model confirmed
-                    select.textContent = '✓ ' + stateResponse.data.model.name;
-                    select.disabled = false;
-                } else {
-                    // Failure - wrong model
-                    select.textContent = '✗ Failed to switch';
-                    select.disabled = false;
-                    
-                    // Reload models to reset
-                    setTimeout(() => this.loadModels(), 1500);
-                }
+        if (disabled && !status) {
+            // Loading state
+            select.innerHTML = '<option selected>Switching... ⏳</option>';
+        } else if (!disabled) {
+            // Reset to current model display
+            const currentOption = Array.from(select.options).find(opt => opt.selected);
+            if (currentOption) {
+                select.innerHTML = `<option selected>${currentOption.textContent}</option>`;
             } else {
-                // No response received, reload models
-                select.textContent = 'Loading...';
-                setTimeout(() => this.loadModels(), 1000);
+                select.innerHTML = '<option selected>Model switch failed</option>';
             }
-        }, 1000);
-    }
-    
-    // Get the most recent state response
-    getStateResponse() {
-        if (!this.wsMessages) return null;
-        const responses = this.wsMessages
-            .filter(m => m.type === 'response' && m.command === 'get_state')
-            .reverse();
-        return responses[0] || null;
+        }
     }
     
     refreshModels() {
@@ -441,6 +430,15 @@ class PiClient {
         if (data.type === 'response' && data.command === 'set_model') {
             console.log('Model change result:', data);
             this.isStreaming = false;
+            
+            // Call any registered callback
+            if (this.modelSwitchCallback) {
+                this.modelSwitchCallback(data);
+                this.modelSwitchCallback = null;
+            } else {
+                // No callback waiting, still check state
+                console.log('set_model completed - checking state for verification');
+            }
         }
         
         if (data.type === 'response' && data.command === 'get_state') {
@@ -467,23 +465,33 @@ class PiClient {
         const select = document.getElementById('model-select');
         select.innerHTML = '';
         
+        // Track which model should be selected
+        let selectedFound = false;
+        
         models.forEach(model => {
             const provider = model.provider || 'anthropic';
             const modelId = model.id || '';
             const name = model.name || `${provider} - ${modelId}`;
+            
+            // Add provider label in brackets for visibility
+            const displayName = `${name} [${provider}]`;
             const value = `${provider}/${modelId}`;
             
             const option = document.createElement('option');
             option.value = value;
-            option.textContent = name;
+            option.textContent = displayName;
             
-            if (!this.selectedModel) {
+            // Auto-select if no model selected yet
+            if (!this.selectedModel && !selectedFound) {
                 this.selectedModel = modelId;
                 option.selected = true;
+                selectedFound = true;
             }
             
             select.appendChild(option);
         });
+        
+        console.log(`Loaded ${models.length} models to dropdown`);
     }
     
     extractTextFromMessages(messages) {
