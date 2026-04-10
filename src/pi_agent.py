@@ -153,6 +153,9 @@ class PiSubprocess:
                         event = json.loads(line)
                         await self._event_queue.put(event)
 
+                        # Handle responses for waiting send_command promises
+                        self._handle_response(event)
+
                         # Notify handlers
                         for handler in self._event_handlers:
                             try:
