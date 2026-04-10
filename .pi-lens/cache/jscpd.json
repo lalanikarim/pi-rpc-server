@@ -1,0 +1,16 @@
+{
+  "success": true,
+  "clones": [
+    {
+      "fileA": "static/app.js",
+      "startA": 256,
+      "fileB": "static/app.js",
+      "startB": 233,
+      "lines": 13,
+      "tokens": 0
+    }
+  ],
+  "duplicatedLines": 12,
+  "totalLines": 1504,
+  "percentage": 0.8
+}

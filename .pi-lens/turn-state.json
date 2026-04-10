@@ -1,57 +1,21 @@
 {
   "files": {
-    "pi-rpc-server/src/config.py": {
+    "src/websocket_handler.py": {
       "modifiedRanges": [
         {
-          "start": 1,
-          "end": 81
+          "start": 8,
+          "end": 9
+        },
+        {
+          "start": 19,
+          "end": 19
         }
       ],
       "importsChanged": true,
-      "lastEdit": "2026-04-10T07:02:03.665Z"
-    },
-    "pi-rpc-server/src/pi_agent.py": {
-      "modifiedRanges": [
-        {
-          "start": 1,
-          "end": 240
-        }
-      ],
-      "importsChanged": true,
-      "lastEdit": "2026-04-10T07:19:53.820Z"
-    },
-    "pi-rpc-server/src/websocket_handler.py": {
-      "modifiedRanges": [
-        {
-          "start": 1,
-          "end": 208
-        }
-      ],
-      "importsChanged": true,
-      "lastEdit": "2026-04-10T21:23:44.977Z"
-    },
-    "pi-rpc-server/src/api.py": {
-      "modifiedRanges": [
-        {
-          "start": 1,
-          "end": 372
-        }
-      ],
-      "importsChanged": true,
-      "lastEdit": "2026-04-10T21:29:57.794Z"
-    },
-    "pi-rpc-server/src/main.py": {
-      "modifiedRanges": [
-        {
-          "start": 1,
-          "end": 93
-        }
-      ],
-      "importsChanged": true,
-      "lastEdit": "2026-04-10T07:26:52.130Z"
+      "lastEdit": "2026-04-10T21:47:47.436Z"
     }
   },
   "turnCycles": 0,
   "maxCycles": 3,
-  "lastUpdated": "2026-04-10T21:29:57.794Z"
+  "lastUpdated": "2026-04-10T21:47:47.436Z"
 }

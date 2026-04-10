@@ -223,70 +223,92 @@ class PiClient {
     
     async loadModels() {
         try {
-            const response = await fetch(`${this.baseUrl}/api/sessions/${this.sessionId}/state`);
+            // Fetch models from the agent via RPC
+            const response = await fetch(`${this.baseUrl}/api/sessions/${this.sessionId}/models`);
             const data = await response.json();
             
-            if (data.success && data.state) {
-                const state = data.state;
-                const currentModel = state.model || {};
-                
-                const select = document.getElementById('model-select');
-                const models = [
-                    {id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4'},
-                    {id: 'claude-haiku-3-5-20241022', name: 'Claude Haiku 3.5'},
+            const select = document.getElementById('model-select');
+            select.innerHTML = '';
+            
+            if (data.success && data.models) {
+                // Use models from the agent
+                data.models.forEach(model => {
+                    // Extract provider and model_id from the model object
+                    const provider = model.provider || 'anthropic';
+                    const modelId = model.id || model.modelId || '';
+                    const name = model.name || `${provider} - ${modelId}`;
+                    const value = `${provider}/${modelId}`;
+                    
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = name;
+                    
+                    // Check if this is current model
+                    const current = data.current || {};
+                    const currentId = current.id || (current.model ? current.model.id : '');
+                    const currentProvider = current.provider || current.model?.provider || provider;
+                    const isCurrent = (currentId === modelId && currentProvider === provider);
+                    
+                    if (isCurrent) {
+                        option.selected = true;
+                        this.selectedModel = modelId;
+                    }
+                    
+                    select.appendChild(option);
+                });
+            } else {
+                // Fallback to hardcoded list if API fails
+                const fallbackModels = [
+                    {id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', provider: 'anthropic'},
+                    {id: 'claude-haiku-3-5-20241022', name: 'Claude Haiku 3.5', provider: 'anthropic'},
                     {id: 'gpt-4o', name: 'GPT-4o', provider: 'openai'},
                     {id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai'},
                 ];
-                
-                select.innerHTML = '';
-                models.forEach(m => {
+                fallbackModels.forEach(m => {
                     const option = document.createElement('option');
-                    option.value = `${m.provider || 'anthropic'}/${m.id}`;
+                    option.value = `${m.provider}/${m.id}`;
                     option.textContent = m.name;
-                    const currentId = currentModel.id;
-                    option.selected = (currentId === m.id);
                     select.appendChild(option);
                 });
-                
-                this.selectedModel = currentModel.id || models[0].id;
+                this.selectedModel = fallbackModels[0].id;
             }
+            
+            console.log('Models loaded:', data);
         } catch (err) {
             console.error('Failed to load models:', err);
-            // Set default models anyway for better UX
+            // Show a friendly error message
             const select = document.getElementById('model-select');
-            const models = [
-                {id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4'},
-                {id: 'claude-haiku-3-5-20241022', name: 'Claude Haiku 3.5'},
-                {id: 'gpt-4o', name: 'GPT-4o', provider: 'openai'},
-                {id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai'},
-            ];
-            select.innerHTML = '';
-            models.forEach(m => {
-                const option = document.createElement('option');
-                option.value = `${m.provider || 'anthropic'}/${m.id}`;
-                option.textContent = m.name;
-                select.appendChild(option);
-            });
-            this.selectedModel = 'claude-sonnet-4-20250514';
+            select.innerHTML = '<option>Failed to load models</option>';
+            select.disabled = true;
         }
     }
     
     selectModel() {
         const modelOption = document.getElementById('model-select').value;
-        const [provider, model_id] = modelOption.split('\/');
+        if (!modelOption || modelOption === 'Failed to load models') return;
+        
+        const [provider, model_id] = modelOption.split('/');
         this.selectedModel = model_id;
         
-        // Update the agent's model
+        // Update the agent's model with proper provider/model
         fetch(`${this.baseUrl}/api/sessions/${this.sessionId}/model`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                provider: provider || 'anthropic',
-                model_id: model_id
+                provider: (provider && provider !== 'None') ? provider : 'anthropic',
+                model_id: model_id || ''
             })
-        }).catch(err => {
-            console.error('Failed to set model:', err);
-        });
+        }).then(res => res.json())
+          .then(result => {
+              console.log('Model change result:', result);
+              if (result.success) {
+                  // Re-load models to get the updated current model
+                  setTimeout(() => this.loadModels(), 1000);
+              }
+          })
+          .catch(err => {
+              console.error('Failed to set model:', err);
+          });
     }
     
     refreshModels() {

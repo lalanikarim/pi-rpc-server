@@ -15,7 +15,7 @@ class WebSocketSession:
     """Represents a WebSocket session connected to a Pi agent."""
 
     id: str
-    websocket: WebSocket
+    websocket: Optional[WebSocket]
     agent: PiSubprocess
     cwd: Optional[str] = None
     ping_interval: int = 30  # seconds
@@ -36,7 +36,7 @@ class WebSocketManager:
         """Establish a new WebSocket connection with optional working directory."""
         async with self._lock:
             if websocket is None:
-                raise ValueError("WebSocket cannot be None")
+                raise ValueError("WebSocket cannot be None for WebSocket connection")
 
             await websocket.accept()
 
@@ -49,7 +49,6 @@ class WebSocketManager:
                 cwd=cwd,
             )
 
-            # Create and start the agent subprocess
             agent = PiSubprocess(config)
             await agent.start()
 
@@ -79,16 +78,17 @@ class WebSocketManager:
                     self._ping_tasks[session_id].cancel()
                 await session.agent.stop()
                 self._event_handlers.pop(session_id, None)
-                try:
-                    await session.websocket.close()
-                except Exception:
-                    pass
+                if session.websocket:
+                    try:
+                        await session.websocket.close()
+                    except Exception:
+                        pass
 
     async def send_json(self, session_id: str, data: dict) -> bool:
         """Send a JSON message to a WebSocket session."""
         async with self._lock:
             session = self._sessions.get(session_id)
-            if not session:
+            if not session or not session.websocket:
                 return False
 
         try:
@@ -122,13 +122,14 @@ class WebSocketManager:
     async def _ping_session(self, session_id: str) -> None:
         """Send periodic pings to maintain connection."""
         session = self._sessions.get(session_id)
-        if not session:
+        if not session or not session.websocket:
             return
 
         try:
             while self._sessions.get(session_id) == session:
                 await asyncio.sleep(session.ping_interval)
-                await session.websocket.ping()
+                if session.websocket:
+                    await session.websocket.ping()
         except Exception:
             pass
 
@@ -172,13 +173,12 @@ manager = WebSocketManager()
 
 
 async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
-    """Main WebSocket handler using direct receives."""
+    """Main WebSocket handler."""
     session = await manager.connect(session_id, websocket)
     print(f"[WEBSOCKET] Connected: {session_id}")
 
     try:
         while True:
-            # Use receive_text to get text messages
             message = await websocket.receive_text()
             print(f"[WEBSOCKET] Received: {message}")
             
@@ -188,10 +188,8 @@ async def handle_websocket(websocket: WebSocket, session_id: str) -> None:
                 await websocket.send_text(json.dumps({"error": "Invalid JSON"}))
                 continue
             
-            # Route to agent
             result = await manager.route_command_to_agent(session_id, data)
             
-            # Send response back
             try:
                 await websocket.send_json(result)
                 print(f"[WEBSOCKET] Sent response: {result.get('success')}")
