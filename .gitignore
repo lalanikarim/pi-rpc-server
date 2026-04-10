@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+
+# pi-rpc-server
+uv.lock
+pyproject.toml.lock
+uv.lock
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# Sessions
+session*.jsonl
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/*
+!.gitignore
+build/*
+!.gitignore
+*.whl
+
+# Coverage
+.coverage
+coverage.xml
+htmlcov/
+
+# Mypy
+.mypy_cache/
+.mypy_cache/
