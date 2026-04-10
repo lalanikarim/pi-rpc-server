@@ -429,7 +429,8 @@ class PiClient {
         }
         
         if (data.type === 'response' && data.command === 'set_model') {
-            console.log('Model change result:', data);
+            console.log('set_model response received:', data);
+            console.log('Checking modelSwitchCallback:', this.modelSwitchCallback ? 'EXISTS' : 'NOT EXISTS');
             this.isStreaming = false;
             
             // Call any registered callback
