@@ -347,7 +347,7 @@ class PiClient {
             this.ws.send(JSON.stringify({
                 type: 'set_model',
                 provider: provider || 'anthropic',
-                model_id: model_id
+                modelId: model_id
             }));
             
             // Register callback to wait for response
