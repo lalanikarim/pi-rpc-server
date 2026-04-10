@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pi RPC Server</title>
+    <style>
+        :root {
+            --bg-primary: #1e1e1e;
+            --bg-secondary: #252526;
+            --text-primary: #d4d4d4;
+            --text-secondary: #9cdcfe;
+            --border-color: #3c3c3c;
+            --accent: #0e639c;
+            --success: #4ec9b0;
+            --warning: #dcdcaa;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background-color: var(--bg-secondary);
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #ff4444;
+        }
+
+        .status-indicator.connected {
+            background-color: var(--success);
+        }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        #message-history {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            line-height: 1.5;
+        }
+
+        .message.user {
+            background-color: var(--accent);
+            align-self: flex-end;
+        }
+
+        .message.assistant {
+            background-color: var(--bg-secondary);
+            align-self: flex-start;
+            border: 1px solid var(--border-color);
+        }
+
+        .message.tool-call {
+            background-color: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-left: 3px solid var(--warning);
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+
+        .message.tool-result {
+            background-color: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-left: 3px solid var(--success);
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+
+        .message-content {
+            white-space: pre-wrap;
+        }
+
+        .thinking-block {
+            background-color: var(--bg-primary);
+            padding: 0.5rem;
+            margin: 0.5rem 0;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        .thinking-title {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+        }
+
+        .editor {
+            background-color: var(--bg-secondary);
+            padding: 1rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .editor-content {
+            display: flex;
+            gap: 1rem;
+            align-items: flex-start;
+        }
+
+        #prompt-input {
+            flex: 1;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+            resize: none;
+            min-height: 60px;
+            max-height: 200px;
+            font-family: inherit;
+        }
+
+        #prompt-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        button {
+            background-color: var(--accent);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+
+        button:hover {
+            background-color: #1177bb;
+        }
+
+        button:disabled {
+            background-color: var(--border-color);
+            cursor: not-allowed;
+        }
+
+        .typing-indicator {
+            display: inline-block;
+        }
+
+        .typing-indicator::after {
+            content: '...';
+            animation: typing 1.5s infinite;
+        }
+
+        @keyframes typing {
+            0%, 20% { content: '...'; }
+            40% { content: '.'; }
+            60% { content: '..'; }
+            80%, 100% { content: '...'; }
+        }
+
+        #connection-status {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Pi RPC Server</h1>
+        <div class="status">
+            <div id="status-indicator" class="status-indicator"></div>
+            <span id="connection-status">Disconnected</span>
+            <button id="clear-btn">Clear</button>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <div id="message-history"></div>
+    </div>
+
+    <div class="editor">
+        <div class="editor-content">
+            <textarea id="prompt-input" placeholder="Type your message... (Shift+Enter for new line)"></textarea>
+            <button id="send-btn">Send</button>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
