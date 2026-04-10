@@ -2,12 +2,12 @@
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import websockets
 from fastapi import WebSocket
 
-from src.pi_agent import PiSubprocess
+from src.pi_agent import PiRPCConfig, PiSubprocess
 
 
 @dataclass
@@ -17,6 +17,7 @@ class WebSocketSession:
     id: str
     websocket: WebSocket
     agent: PiSubprocess
+    cwd: Optional[str] = None
     ping_interval: int = 30  # seconds
 
 
@@ -29,31 +30,36 @@ class WebSocketManager:
         self._ping_tasks: dict[str, asyncio.Task] = {}
         self._event_handlers: dict[str, list[Callable[[dict], Any]]] = {}
 
-    async def connect(self, session_id: str, websocket: WebSocket) -> WebSocketSession:
-        """Establish a new WebSocket connection."""
+    async def connect(
+        self, session_id: str, websocket: Optional[WebSocket], cwd: Optional[str] = None
+    ) -> WebSocketSession:
+        """Establish a new WebSocket connection with optional working directory."""
         async with self._lock:
+            if websocket is None:
+                raise ValueError("WebSocket cannot be None")
+
             await websocket.accept()
+
+            config = PiRPCConfig(
+                provider="anthropic",
+                model="claude-sonnet-4-20250514",
+                thinking_level="medium",
+                session_dir=None,
+                no_session=False,
+                cwd=cwd,
+            )
 
             session = WebSocketSession(
                 id=session_id,
                 websocket=websocket,
-                agent=PiSubprocess(
-                    # Create with default config - can be overridden later
-                    provider="anthropic",
-                    model="claude-sonnet-4-20250514",
-                    thinking_level="medium",
-                    session_dir=None,
-                    no_session=False,
-                ),
+                agent=PiSubprocess(config),
+                cwd=cwd,
             )
 
             self._sessions[session_id] = session
             self._event_handlers[session_id] = []
 
-            # Start event stream
             asyncio.create_task(self._stream_events(session_id))
-
-            # Start ping task
             self._ping_tasks[session_id] = asyncio.create_task(
                 self._ping_session(session_id)
             )

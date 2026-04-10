@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Callable, Optional
 
 
-
 @dataclass
 class PiRPCConfig:
     """Configuration for the Pi RPC subprocess."""
@@ -20,6 +19,7 @@ class PiRPCConfig:
     no_session: bool
     api_key: Optional[str] = None
     process_args: Optional[list[str]] = None
+    cwd: Optional[str] = None
 
 
 class RPCProtocolError(Exception):
@@ -33,6 +33,7 @@ class PiSubprocess:
 
     def __init__(self, config: PiRPCConfig):
         self.config = config
+        self._cwd = config.cwd
         self._process: Optional[Process] = None
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
@@ -58,6 +59,7 @@ class PiSubprocess:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                cwd=self._cwd,
             )
 
             self._reader = self._process.stdout
