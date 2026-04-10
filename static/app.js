@@ -339,17 +339,69 @@ class PiClient {
         const [provider, model_id] = modelOption.split('/');
         this.selectedModel = model_id;
         
+        // Disable dropdown during confirmation
+        const select = document.getElementById('model-select');
+        select.disabled = true;
+        select.textContent = 'Switching...';
+        
         // Send command via WebSocket
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({
                 type: 'set_model',
                 provider: provider || 'anthropic',
-                model_id: model_id
+                modelId: model_id
             }));
             
-            // Refresh models after change
-            setTimeout(() => this.loadModels(), 1000);
+            // Wait for response then verify with get_state
+            setTimeout(() => this.validateModelChange(model_id, provider || 'anthropic'), 500);
+        } else {
+            // Re-enable if not connected
+            select.disabled = false;
         }
+    }
+    
+    validateModelChange(expectedModel, expectedProvider) {
+        const select = document.getElementById('model-select');
+        
+        // Send get_state to verify
+        this.ws.send(JSON.stringify({
+            type: 'get_state'
+        }));
+        
+        // Wait for state response
+        setTimeout(() => {
+            const stateResponse = this.getStateResponse();
+            
+            if (stateResponse && stateResponse.data?.model) {
+                const currentModel = stateResponse.data.model;
+                
+                if (currentModel.id === expectedModel && currentModel.provider === expectedProvider) {
+                    // Success - model confirmed
+                    select.textContent = '✓ ' + stateResponse.data.model.name;
+                    select.disabled = false;
+                } else {
+                    // Failure - wrong model
+                    select.textContent = '✗ Failed to switch';
+                    select.disabled = false;
+                    
+                    // Reload models to reset
+                    setTimeout(() => this.loadModels(), 1500);
+                }
+            } else {
+                // No response received, reload models
+                select.textContent = 'Loading...';
+                setTimeout(() => this.loadModels(), 1000);
+            }
+        }, 1000);
+    }
+    
+    // Get the most recent state response
+    getStateResponse() {
+        if (!this.wsMessages) return null;
+        const responses = this.wsMessages
+            .filter(m => m.type === 'response' && m.command === 'get_state')
+            .reverse();
+        return responses[0] || null;
     }
     
     refreshModels() {
@@ -389,7 +441,12 @@ class PiClient {
         if (data.type === 'response' && data.command === 'set_model') {
             console.log('Model change result:', data);
             this.isStreaming = false;
-            setTimeout(() => this.loadModels(), 500);
+        }
+        
+        if (data.type === 'response' && data.command === 'get_state') {
+            if (data.success && data.data?.model) {
+                console.log('Current model:', data.data.model.id, '(' + data.data.model.provider + ')');
+            }
         }
 
         if (data.type === 'message_update' && data.assistantMessageEvent?.type === 'text_delta') {
