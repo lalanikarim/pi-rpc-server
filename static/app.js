@@ -9,6 +9,8 @@ class PiClient {
         this.ws = null;
         this.messageHistory = [];
         this.selectedCwd = null;
+        this.modelLoadingCallbacks = [];
+        this.loadModelsDeferred = null;
         this.init();
     }
     
@@ -81,7 +83,6 @@ class PiClient {
                 option.value = 'new';
                 option.textContent = 'No agent sessions in this directory';
                 select.appendChild(option);
-                select.addEventListener('change', () => {});
             }
             
             document.getElementById('available-sessions').style.display = 'block';
@@ -121,7 +122,10 @@ class PiClient {
                 document.getElementById('setup-panel').style.display = 'none';
                 document.getElementById('session-ui').classList.add('active');
                 await this.initWebSocket();
-                setTimeout(() => this.loadModels(), 500);
+                
+                // Defer model loading until socket is open
+                this.loadModelsDeferred = true;
+                
             } catch (e) {
                 console.error('Failed to parse agent selection:', e);
             }
@@ -147,7 +151,7 @@ class PiClient {
                     document.getElementById('setup-panel').style.display = 'none';
                     document.getElementById('session-ui').classList.add('active');
                     await this.initWebSocket();
-                    setTimeout(() => this.loadModels(), 500);
+                    this.loadModelsDeferred = true;
                 }
             } catch (err) {
                 console.error('Failed to create session:', err);
@@ -166,6 +170,12 @@ class PiClient {
         this.ws.onopen = () => {
             this.updateConnectionBadge('connected');
             console.log('WebSocket connected');
+            
+            // Now load models since socket is ready
+            if (this.loadModelsDeferred) {
+                this.loadModels();
+                this.loadModelsDeferred = null;
+            }
         };
         
         this.ws.onmessage = (event) => {
@@ -182,18 +192,104 @@ class PiClient {
         };
     }
     
+    // Register a callback to load models once WebSocket is ready
+    onModelLoad(callback) {
+        this.modelLoadingCallbacks.push(callback);
+    }
+    
+    // Send command via WebSocket
+    sendRequest(command) {
+        return new Promise((resolve, reject) => {
+            const requestCallback = () => {
+                // Remove old callback
+                this.ws.removeEventListener('message', requestCallback);
+                
+                processMessage();
+            };
+            
+            let received = false;
+            function processMessage() {
+                if (received) return;
+                received = true;
+                
+                // Remove the listener
+                this.ws.removeEventListener('message', requestCallback);
+                
+                setTimeout(() => {
+                    // Resolve with the most recent request response
+                    const messages = this.wsMessages.filter(msg => 
+                        msg.type === 'response' && 
+                        msg.command === command &&
+                        (msg.id === request.id || !msg.id) // also accept anonymous responses
+                    );
+                    
+                    if (messages.length > 0) {
+                        resolve(messages[messages.length - 1]);
+                    } else {
+                        reject(new Error('No response received'));
+                    }
+                }, 100);
+            }
+            
+            this.ws.addEventListener('message', requestCallback);
+            
+            // Queue the request
+            this.wsRequests.push({
+                id: 'req-' + Date.now(),
+                type: command,
+                data: null
+            });
+            
+            // Send immediately
+            this.ws.send(JSON.stringify({
+                type: command,
+                id: this.wsRequests[this.wsRequests.length - 1].id
+            }));
+        });
+    }
+    
     async loadModels() {
         const select = document.getElementById('model-select');
         select.innerHTML = '<option value="">Loading...</option>';
         
-        const response = await fetch(`${this.baseUrl}/api/sessions/${this.sessionId}/models`);
-        const data = await response.json();
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.log('WebSocket not ready, showing error option');
+            const option = document.createElement('option');
+            option.disabled = true;
+            option.textContent = 'Not connected';
+            select.appendChild(option);
+            return;
+        }
+        
+        // Send get_available_models command via WebSocket
+        const requestData = {
+            type: 'get_available_models',
+            id: 'load-models-' + Date.now()
+        };
+        
+        console.log('Sending model request:', requestData);
+        this.ws.send(JSON.stringify(requestData));
+        
+        // Wait for response (polling)
+        const maxAttempts = 20;
+        for (let i = 0; i < maxAttempts; i++) {
+            // Check if we have model data from the response
+            const response = this.getLatestResponse('get_available_models');
+            if (response) {
+                break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        // Get response
+        const response = this.getLatestResponse('get_available_models') || {};
+        const data = response.data || {};
         
         select.innerHTML = '';
         
-        console.log('Model load data:', data);
+        console.log('Model data:', JSON.stringify(data, null, 2));
         
-        if (data.success && data.models && data.models.length > 0) {
+        if (data.models && data.models.length > 0) {
             data.models.forEach(model => {
                 const provider = model.provider || 'anthropic';
                 const modelId = model.id || '';
@@ -205,28 +301,34 @@ class PiClient {
                 option.textContent = name;
                 
                 // If no current model is set, select the first one
-                if (!data.current && data.models.length === 75) {
-                    console.log('Selecting first model as default');
+                if (!this.selectedModel) {
                     this.selectedModel = modelId;
                     option.selected = true;
-                } else if (!data.current && data.models.length > 0) {
-                    // Select first available
-                    if (data.models.indexOf(model) === 0) {
-                        option.selected = true;
-                        this.selectedModel = modelId;
-                    }
                 }
                 
                 select.appendChild(option);
             });
+            
+            console.log(`Loaded ${data.models.length} models`);
         } else {
             const option = document.createElement('option');
             option.disabled = true;
-            option.textContent = 'No models available - check agent console';
+            option.textContent = 'No models available';
             select.appendChild(option);
-            
-            console.warn('No models available from agent:', data);
+            console.warn('No models available from agent');
         }
+    }
+    
+    // Get the most recent response for a command type
+    getLatestResponse(command) {
+        // Scan all WebSocket messages
+        if (this.ws) {
+            const messages = this.wsMessages || [];
+            return messages
+                .filter(m => m.type === 'response' && m.command === command)
+                .pop();
+        }
+        return null;
     }
     
     selectModel() {
@@ -236,25 +338,17 @@ class PiClient {
         const [provider, model_id] = modelOption.split('/');
         this.selectedModel = model_id;
         
-        fetch(`${this.baseUrl}/api/sessions/${this.sessionId}/model`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+        // Send command via WebSocket
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({
+                type: 'set_model',
                 provider: provider || 'anthropic',
                 model_id: model_id
-            })
-        })
-        .then(res => res.json())
-        .then(result => {
-            if (result.success) {
-                setTimeout(() => this.loadModels(), 1000);
-            }
-        })
-        .catch(err => {
-            console.error('Failed to set model:', err);
-            alert('Failed to set model: ' + err.message);
-            this.loadModels();
-        });
+            }));
+            
+            // Refresh models after change
+            setTimeout(() => this.loadModels(), 1000);
+        }
     }
     
     refreshModels() {
@@ -273,15 +367,30 @@ class PiClient {
     }
     
     handleWebSocketMessage(data) {
-        if (data.type === 'response' && data.command === 'get_state') {
-            const currentModel = data.state?.model || data.state?.model?.model || {};
-            if (currentModel?.id) {
-                this.selectedModel = currentModel.id;
-            }
+        // Store messages for later retrieval
+        if (!this.wsMessages) this.wsMessages = [];
+        if (this.wsMessages.length > 100) {
+            this.wsMessages = this.wsMessages.slice(-50);
+        }
+        this.wsMessages.push(data);
+        
+        console.log('Received:', {command: data.command, type: data.type});
+        
+        if (data.type === 'response' && data.command === 'get_available_models') {
+            console.log('Model response received:', data);
+            this.selectedModel = data.data?.current?.id || data.data?.current?.model?.id || null;
+            this.updateModelDropdown(data.data?.models || []);
         }
         
-        if (data.type === 'message_update' && data.assistantMessageEvent?.type === 'text_delta') {
-            this.addTyping(data.assistantMessageEvent.delta);
+        if (data.type === 'response' && data.command === 'set_model') {
+            console.log('Model change result:', data);
+            setTimeout(() => this.loadModels(), 500);
+        }
+
+        if (data.type === 'message_update') {
+            if (data.assistantMessageEvent?.type === 'text_delta') {
+                this.addTyping(data.assistantMessageEvent.delta);
+            }
         }
         
         if (data.type === 'agent_end') {
@@ -291,6 +400,29 @@ class PiClient {
                 timestamp: Date.now()
             });
         }
+    }
+    
+    updateModelDropdown(models) {
+        const select = document.getElementById('model-select');
+        select.innerHTML = '';
+        
+        models.forEach(model => {
+            const provider = model.provider || 'anthropic';
+            const modelId = model.id || '';
+            const name = model.name || `${provider} - ${modelId}`;
+            const value = `${provider}/${modelId}`;
+            
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = name;
+            
+            if (!this.selectedModel) {
+                this.selectedModel = modelId;
+                option.selected = true;
+            }
+            
+            select.appendChild(option);
+        });
     }
     
     extractTextFromMessages(messages) {
@@ -376,11 +508,11 @@ class PiClient {
     }
 }
 
-window.toggleCustomPath = () => window.piClient.toggleCustomPath();
-window.loadSessionsAvailable = () => window.piClient.loadSessionsAvailable();
-window.startSession = () => window.piClient.startSession();
-window.selectModel = () => window.piClient.selectModel();
-window.refreshModels = () => window.piClient.refreshModels();
+function toggleCustomPath() { window.piClient.toggleCustomPath(); }
+function loadSessionsAvailable() { window.piClient.loadSessionsAvailable(); }
+function startSession() { window.piClient.startSession(); }
+function selectModel() { window.piClient.selectModel(); }
+function refreshModels() { window.piClient.refreshModels(); }
 
 document.addEventListener('DOMContentLoaded', () => {
     window.piClient = new PiClient();

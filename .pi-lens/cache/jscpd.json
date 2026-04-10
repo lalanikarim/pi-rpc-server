@@ -3,14 +3,22 @@
   "clones": [
     {
       "fileA": "static/app.js",
-      "startA": 256,
+      "startA": 146,
       "fileB": "static/app.js",
-      "startB": 233,
-      "lines": 13,
+      "startB": 120,
+      "lines": 7,
+      "tokens": 0
+    },
+    {
+      "fileA": "test-rpc-direct.js",
+      "startA": 127,
+      "fileB": "test-rpc.js",
+      "startB": 39,
+      "lines": 8,
       "tokens": 0
     }
   ],
-  "duplicatedLines": 12,
-  "totalLines": 1504,
-  "percentage": 0.8
+  "duplicatedLines": 13,
+  "totalLines": 1863,
+  "percentage": 0.7
 }
