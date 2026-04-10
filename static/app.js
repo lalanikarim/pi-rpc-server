@@ -25,7 +25,6 @@ class PiClient {
         });
     }
     
-    // Toggle custom path input visibility
     toggleCustomPath() {
         const select = document.getElementById('cwd-select');
         const customInput = document.getElementById('custom-path-input');
@@ -33,21 +32,11 @@ class PiClient {
         if (select.value === 'custom') {
             customInput.classList.add('active');
             document.getElementById('custom-path').focus();
-            // Disable the preset select since we're using custom input
         } else {
             customInput.classList.remove('active');
         }
     }
     
-    // Toggle between custom input and preset select
-    toggleInput() {
-        const presetSelect = document.getElementById('cwd-select');
-        const customInput = document.getElementById('custom-path-input');
-        presetSelect.style.display = presetSelect.style.display === 'none' ? 'block' : 'none';
-        customInput.classList.toggle('active');
-    }
-    
-    // Get the currently selected/entered CWD
     getCurrentCwd() {
         const select = document.getElementById('cwd-select');
         const customPath = document.getElementById('custom-path');
@@ -58,7 +47,6 @@ class PiClient {
         return select.value;
     }
     
-    // Load available sessions from selected directory
     async loadSessionsAvailable() {
         const cwd = this.getCurrentCwd();
         if (!cwd) {
@@ -91,16 +79,15 @@ class PiClient {
             } else {
                 const option = document.createElement('option');
                 option.value = 'new';
-                option.textContent = 'No sessions in this directory';
+                option.textContent = 'No agent sessions in this directory';
                 select.appendChild(option);
                 select.addEventListener('change', () => {});
             }
             
             document.getElementById('available-sessions').style.display = 'block';
             
-            // Display the current directory being scanned
             const title = document.getElementById('available-sessions').querySelector('h3');
-            title.textContent = `Available Agents in: ${this.shortenPath(cwd)}↬`;
+            title.textContent = `Available Agents in: ${this.shortenPath(cwd)}`;
             
         } catch (err) {
             console.error('Failed to load sessions:', err);
@@ -120,44 +107,25 @@ class PiClient {
         return path;
     }
     
-    onAgentSelect() {
-        // Handle agent selection logic
-    }
+    onAgentSelect() {}
     
-    // Start session with selected CWD and agent (if any)
     async startSession() {
         const cwd = this.getCurrentCwd();
         const agentSelect = document.getElementById('agent-select');
         const agentValue = agentSelect.value;
         
-        let agentId = null;
-        
-        // Check if user selected an existing agent
         if (agentValue && agentValue !== 'new') {
             try {
                 const agentInfo = JSON.parse(agentValue);
-                agentId = agentInfo.id;
-                this.sessionId = agentId;
+                this.sessionId = agentInfo.id;
+                document.getElementById('setup-panel').style.display = 'none';
+                document.getElementById('session-ui').classList.add('active');
+                await this.initWebSocket();
+                setTimeout(() => this.loadModels(), 500);
             } catch (e) {
                 console.error('Failed to parse agent selection:', e);
             }
-        }
-        
-        if (agentId) {
-            // Use existing session - switch to it
-            this.sessionId = agentId;
-            
-            // Switch to session UI immediately
-            document.getElementById('setup-panel').style.display = 'none';
-            document.getElementById('session-ui').classList.add('active');
-            
-            // Initialize WebSocket for this existing session
-            await this.initWebSocket();
-            
-            // Try to load models for this session
-            setTimeout(() => this.loadModels(), 500);
         } else {
-            // Create a new agent session
             const createBtn = document.querySelector('#available-sessions button');
             createBtn.textContent = 'Creating...';
             createBtn.disabled = true;
@@ -176,21 +144,15 @@ class PiClient {
                 
                 if (data.session_id) {
                     this.sessionId = data.session_id;
-                    
-                    // Switch to session UI
                     document.getElementById('setup-panel').style.display = 'none';
                     document.getElementById('session-ui').classList.add('active');
-                    
-                    // Initialize WebSocket
                     await this.initWebSocket();
-                    
-                    // Load models
                     setTimeout(() => this.loadModels(), 500);
                 }
             } catch (err) {
                 console.error('Failed to create session:', err);
                 alert('Failed to create session: ' + err.message);
-                createBtn.textContent = 'Start Session ↬';
+                createBtn.textContent = 'Start Session';
                 createBtn.disabled = false;
             }
         }
@@ -213,7 +175,6 @@ class PiClient {
         
         this.ws.onclose = () => {
             this.updateConnectionBadge('disconnected');
-            console.log('WebSocket closed');
         };
         
         this.ws.onerror = (err) => {
@@ -222,93 +183,72 @@ class PiClient {
     }
     
     async loadModels() {
-        try {
-            // Fetch models from the agent via RPC
-            const response = await fetch(`${this.baseUrl}/api/sessions/${this.sessionId}/models`);
-            const data = await response.json();
+        const select = document.getElementById('model-select');
+        select.innerHTML = '<option value="">Loading...</option>';
+        
+        const response = await fetch(`${this.baseUrl}/api/sessions/${this.sessionId}/models`);
+        const data = await response.json();
+        
+        select.innerHTML = '';
+        
+        if (data.success && data.models && data.models.length > 0) {
+            data.models.forEach(model => {
+                const provider = model.provider || 'anthropic';
+                const modelId = model.id || '';
+                const name = model.name || `${provider} - ${modelId}`;
+                const value = `${provider}/${modelId}`;
+                
+                const option = document.createElement('option');
+                option.value = value;
+                option.textContent = name;
+                
+                const current = data.current || {};
+                const currentModel = current.model || current;
+                const isCurrent = (currentModel.id === modelId && currentModel.provider === provider);
+                
+                if (isCurrent) {
+                    option.selected = true;
+                    this.selectedModel = modelId;
+                }
+                
+                select.appendChild(option);
+            });
+        } else {
+            const option = document.createElement('option');
+            option.disabled = true;
+            option.textContent = 'No models available - configure in pi agent';
+            select.appendChild(option);
             
-            const select = document.getElementById('model-select');
-            select.innerHTML = '';
-            
-            if (data.success && data.models) {
-                // Use models from the agent
-                data.models.forEach(model => {
-                    // Extract provider and model_id from the model object
-                    const provider = model.provider || 'anthropic';
-                    const modelId = model.id || model.modelId || '';
-                    const name = model.name || `${provider} - ${modelId}`;
-                    const value = `${provider}/${modelId}`;
-                    
-                    const option = document.createElement('option');
-                    option.value = value;
-                    option.textContent = name;
-                    
-                    // Check if this is current model
-                    const current = data.current || {};
-                    const currentId = current.id || (current.model ? current.model.id : '');
-                    const currentProvider = current.provider || current.model?.provider || provider;
-                    const isCurrent = (currentId === modelId && currentProvider === provider);
-                    
-                    if (isCurrent) {
-                        option.selected = true;
-                        this.selectedModel = modelId;
-                    }
-                    
-                    select.appendChild(option);
-                });
-            } else {
-                // Fallback to hardcoded list if API fails
-                const fallbackModels = [
-                    {id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', provider: 'anthropic'},
-                    {id: 'claude-haiku-3-5-20241022', name: 'Claude Haiku 3.5', provider: 'anthropic'},
-                    {id: 'gpt-4o', name: 'GPT-4o', provider: 'openai'},
-                    {id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai'},
-                ];
-                fallbackModels.forEach(m => {
-                    const option = document.createElement('option');
-                    option.value = `${m.provider}/${m.id}`;
-                    option.textContent = m.name;
-                    select.appendChild(option);
-                });
-                this.selectedModel = fallbackModels[0].id;
-            }
-            
-            console.log('Models loaded:', data);
-        } catch (err) {
-            console.error('Failed to load models:', err);
-            // Show a friendly error message
-            const select = document.getElementById('model-select');
-            select.innerHTML = '<option>Failed to load models</option>';
-            select.disabled = true;
+            console.warn('No models available from agent:', data);
         }
     }
     
     selectModel() {
         const modelOption = document.getElementById('model-select').value;
-        if (!modelOption || modelOption === 'Failed to load models') return;
+        if (!modelOption) return;
         
         const [provider, model_id] = modelOption.split('/');
         this.selectedModel = model_id;
         
-        // Update the agent's model with proper provider/model
         fetch(`${this.baseUrl}/api/sessions/${this.sessionId}/model`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                provider: (provider && provider !== 'None') ? provider : 'anthropic',
-                model_id: model_id || ''
+                provider: provider || 'anthropic',
+                model_id: model_id
             })
-        }).then(res => res.json())
-          .then(result => {
-              console.log('Model change result:', result);
-              if (result.success) {
-                  // Re-load models to get the updated current model
-                  setTimeout(() => this.loadModels(), 1000);
-              }
-          })
-          .catch(err => {
-              console.error('Failed to set model:', err);
-          });
+        })
+        .then(res => res.json())
+        .then(result => {
+            if (result.success) {
+                setTimeout(() => this.loadModels(), 1000);
+            }
+        })
+        .catch(err => {
+            console.error('Failed to set model:', err);
+            alert('Failed to set model: ' + err.message);
+            this.loadModels();
+        });
     }
     
     refreshModels() {
@@ -327,18 +267,15 @@ class PiClient {
     }
     
     handleWebSocketMessage(data) {
-        console.log('Received:', data);
-        
-        if (data.type === 'response') {
-            if (data.command === 'get_state' && data.success && data.data) {
-                this.selectedCwd = data.data.cwd || null;
+        if (data.type === 'response' && data.command === 'get_state') {
+            const currentModel = data.state?.model || data.state?.model?.model || {};
+            if (currentModel?.id) {
+                this.selectedModel = currentModel.id;
             }
         }
         
-        if (data.type === 'message_update') {
-            if (data.assistantMessageEvent.type === 'text_delta') {
-                this.addTyping(data.assistantMessageEvent.delta);
-            }
+        if (data.type === 'message_update' && data.assistantMessageEvent?.type === 'text_delta') {
+            this.addTyping(data.assistantMessageEvent.delta);
         }
         
         if (data.type === 'agent_end') {
@@ -433,12 +370,11 @@ class PiClient {
     }
 }
 
-// Event handlers
-function toggleCustomPath() { window.piClient.toggleCustomPath(); }
-function loadSessionsAvailable() { window.piClient.loadSessionsAvailable(); }
-function startSession() { window.piClient.startSession(); }
-function selectModel() { window.piClient.selectModel(); }
-function refreshModels() { window.piClient.refreshModels(); }
+window.toggleCustomPath = () => window.piClient.toggleCustomPath();
+window.loadSessionsAvailable = () => window.piClient.loadSessionsAvailable();
+window.startSession = () => window.piClient.startSession();
+window.selectModel = () => window.piClient.selectModel();
+window.refreshModels = () => window.piClient.refreshModels();
 
 document.addEventListener('DOMContentLoaded', () => {
     window.piClient = new PiClient();
