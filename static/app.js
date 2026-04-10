@@ -11,6 +11,7 @@ class PiClient {
         this.selectedCwd = null;
         this.modelLoadingCallbacks = [];
         this.loadModelsDeferred = null;
+        this.isStreaming = false;
         this.init();
     }
     
@@ -367,14 +368,17 @@ class PiClient {
     }
     
     handleWebSocketMessage(data) {
+        // Track streaming state - only true during active processing
+        if (data.type === 'agent_start' && data.command !== 'get_available_models') {
+            this.isStreaming = true;
+        }
+        
         // Store messages for later retrieval
         if (!this.wsMessages) this.wsMessages = [];
         if (this.wsMessages.length > 100) {
             this.wsMessages = this.wsMessages.slice(-50);
         }
         this.wsMessages.push(data);
-        
-        console.log('Received:', {command: data.command, type: data.type});
         
         if (data.type === 'response' && data.command === 'get_available_models') {
             console.log('Model response received:', data);
@@ -384,16 +388,16 @@ class PiClient {
         
         if (data.type === 'response' && data.command === 'set_model') {
             console.log('Model change result:', data);
+            this.isStreaming = false;
             setTimeout(() => this.loadModels(), 500);
         }
 
-        if (data.type === 'message_update') {
-            if (data.assistantMessageEvent?.type === 'text_delta') {
-                this.addTyping(data.assistantMessageEvent.delta);
-            }
+        if (data.type === 'message_update' && data.assistantMessageEvent?.type === 'text_delta') {
+            this.addTyping(data.assistantMessageEvent.delta);
         }
         
         if (data.type === 'agent_end') {
+            this.isStreaming = false;
             this.addMessage({
                 type: 'assistant',
                 content: this.extractTextFromMessages(data.messages),
@@ -451,12 +455,18 @@ class PiClient {
         input.disabled = true;
         
         if (this.ws?.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({
+            const promptData = {
                 type: 'prompt',
                 message: message,
-                streamingBehavior: 'steer',
                 id: 'req-' + Date.now()
-            }));
+            };
+            
+            // Only include streamingBehavior if agent is currently streaming
+            if (this.isStreaming) {
+                promptData.streamingBehavior = 'steer';
+            }
+            
+            this.ws.send(JSON.stringify(promptData));
         } else {
             this.addMessage({
                 type: 'assistant',
