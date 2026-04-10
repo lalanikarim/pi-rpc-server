@@ -481,11 +481,11 @@ class PiClient {
     }
 }
 
-function toggleCustomPath() { window.piClient.toggleCustomPath(); }
-function loadSessionsAvailable() { window.piClient.loadSessionsAvailable(); }
-function startSession() { window.piClient.startSession(); }
-function selectModel() { window.piClient.selectModel(); }
-function refreshModels() { window.piClient.refreshModels(); }
+function toggleCustomPath() { if (window.piClient) window.piClient.toggleCustomPath(); }
+function loadSessionsAvailable() { if (window.piClient) window.piClient.loadSessionsAvailable(); }
+function startSession() { if (window.piClient) window.piClient.startSession(); }
+function selectModel() { if (window.piClient) window.piClient.selectModel(); }
+function refreshModels() { if (window.piClient) window.piClient.refreshModels(); }
 
 document.addEventListener('DOMContentLoaded', () => {
     window.piClient = new PiClient();
