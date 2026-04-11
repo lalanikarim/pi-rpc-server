@@ -186,6 +186,11 @@ class PiClient {
             document.getElementById('custom-path').value = selectedPath;
         }
         
+        // Add to custom folders (except for presets)
+        if (!presets[selectedPath] && selectedPath !== 'project') {
+            this.addCustomFolder(selectedPath);
+        }
+        
         // Hide the directory browser
         const container = document.getElementById('directory-browser-container');
         container.style.display = 'none';
@@ -781,6 +786,103 @@ class PiClient {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    
+    // Custom folder management
+    loadCustomFolders() {
+        try {
+            const data = localStorage.getItem('custom_folders');
+            this.customFolders = data ? JSON.parse(data) : [];
+        } catch (e) {
+            this.customFolders = [];
+        }
+        this.renderCustomFolders();
+    }
+    
+    addCustomFolder(path) {
+        this.customFolders = this.customFolders || [];
+        
+        // Remove if already exists
+        const index = this.customFolders.indexOf(path);
+        if (index !== -1) {
+            this.customFolders.splice(index, 1);
+        }
+        
+        // Limit to 10 custom folders
+        if (this.customFolders.length >= 10) {
+            this.customFolders.pop();
+        }
+        
+        this.customFolders.unshift(path);
+        try {
+            localStorage.setItem('custom_folders', JSON.stringify(this.customFolders));
+        } catch (e) {
+            console.warn('Could not save custom folders:', e);
+        }
+        this.renderCustomFolders();
+    }
+    
+    renderCustomFolders() {
+        const container = document.getElementById('custom-folders-container');
+        const listContainer = document.getElementById('custom-folders-list');
+        
+        if (!this.customFolders || this.customFolders.length === 0) {
+            listContainer.style.display = 'none';
+            return;
+        }
+        
+        listContainer.style.display = 'block';
+        container.innerHTML = this.customFolders.map(folder => {
+            const shortName = this.shortenPath(folder);
+            return `
+                <div class="custom-folder-option" onclick="piClient.selectCustomFolder('${folder}')">
+                    <span class="folder-tree-icon">📁</span>
+                    <span style="font-size: 0.85rem;">${shortName}</span>
+                    <button 
+                        onclick="event.stopPropagation(); piClient.removeCustomFolder('${folder}')" 
+                        style="margin-left: auto; background: #444; border: none; border-radius: 3px; padding: 0.25rem; cursor: pointer;"
+                        title="Remove this folder"
+                    >✕</button>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    selectCustomFolder(path) {
+        const select = document.getElementById('cwd-select');
+        select.value = path;
+        
+        if (path === 'project') {
+            select.value = 'project';
+        } else if (path.substring(0, 2) === '~/' || path === '/Users/karim' || path === '/Users/karim/Projects') {
+            select.value = path;
+            document.getElementById('custom-path-input').classList.remove('active');
+        } else {
+            select.value = 'custom';
+            document.getElementById('custom-path-input').classList.add('active');
+            document.getElementById('custom-path').value = path;
+        }
+        
+        document.getElementById('custom-folders-list').style.display = 'none';
+    }
+    
+    removeCustomFolder(path) {
+        this.customFolders = this.customFolders.filter(p => p !== path);
+        try {
+            localStorage.setItem('custom_folders', JSON.stringify(this.customFolders));
+        } catch (e) {
+            console.warn('Could not save custom folders:', e);
+        }
+        this.renderCustomFolders();
+        
+        if (!this.customFolders || this.customFolders.length === 0) {
+            document.getElementById('custom-folders-list').style.display = 'none';
+        }
+    }
+    
+    async init() {
+        await this.loadInitialDirectory();
+        this.loadCustomFolders();
+        this.bindEvents();
     }
 }
 
