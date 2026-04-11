@@ -89,10 +89,14 @@ class PiClient {
             const isSelected = fullPath.includes(this.getCurrentCwd()) || fullPath === this.getCurrentCwd();
             const icon = entry.type === 'directory' ? '📁' : '📄';
             const iconSize = entry.type === 'directory' ? '1.2rem' : '1rem';
+            const clickHandler = entry.type === 'directory' 
+                ? `piClient.loadDirectoryTree('${fullPath}')` 
+                : '';
             
             html += `
                 <div class="tree-entry ${isSelected ? 'selected' : ''}" 
-                     onclick="piClient.selectPath('${fullPath}')">
+                     onclick="${clickHandler}" 
+                     style="${clickHandler ? 'cursor: pointer;' : ''}">
                     <span class="file-icon" style="font-size: ${iconSize}">${icon}</span>
                     <strong class="file-name ${isSelected ? 'selected-file' : ''}">${entry.name}</strong>
                     ${entry.type === 'directory' ? '<span class="status">/</span>' : ''}
@@ -145,13 +149,53 @@ class PiClient {
             document.getElementById('custom-path-input').classList.add('active');
             document.getElementById('custom-path').value = path;
         }
+    }
+    
+    confirmSelection() {
+        const currentPathEl = document.getElementById('current-path');
+        const selectedPath = currentPathEl.textContent || '';
         
-        // Hide the directory browser after selection (with a small delay)
-        setTimeout(() => {
-            const container = document.getElementById('directory-browser-container');
-            container.style.display = 'none';
-            this.directoryBrowserVisible = false;
-        }, 300);
+        console.log('Confirming selection:', selectedPath);
+        
+        // Update the cwd select dropdown
+        const select = document.getElementById('cwd-select');
+        
+        // Check if path is a preset
+        const presets = {
+            'project': 'Current project repo',
+            '~/': 'Home directory (~)',
+            '/Users/karim': 'Karim\'s home',
+            '/Users/karim/Projects': 'Projects folder'
+        };
+        
+        if (selectedPath === 'project') {
+            select.value = 'project';
+            foundPreset = true;
+        } else if (presets[selectedPath]) {
+            select.value = selectedPath;
+            foundPreset = true;
+            
+            // Update custom path input
+            if (selectedPath.substring(0, 2) === '~/' || selectedPath.startsWith('/Users')) {
+                document.getElementById('custom-path-input').classList.remove('active');
+            }
+        } else {
+            // Handle custom path
+            select.value = 'custom';
+            document.getElementById('custom-path-input').classList.add('active');
+            document.getElementById('custom-path').value = selectedPath;
+        }
+        
+        // Hide the directory browser
+        const container = document.getElementById('directory-browser-container');
+        container.style.display = 'none';
+        this.directoryBrowserVisible = false;
+        
+        // Trigger load sessions if button exists
+        const loadBtn = document.getElementById('load-sessions');
+        if (loadBtn) {
+            loadBtn.click();
+        }
     }
     
     init() {

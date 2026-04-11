@@ -62,6 +62,11 @@
             border-bottom: 1px solid var(--border-color);
             margin-bottom: 0.5rem;
         }
+        .nav-button-group {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
         .nav-btn {
             cursor: pointer;
             padding: 0.25rem 0.5rem;
@@ -79,6 +84,7 @@
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            min-width: 150px;
         }
         .search-box input {
             padding: 0.5rem;
@@ -214,11 +220,18 @@
             <div id="directory-browser-container">
                 <div class="directory-nav">
                     <div class="nav-btn" onclick="piClient.browseUp()">⬆️ Up</div>
-                    <div class="nav-path" id="current-path"></div>
+                    <div class="nav-button-group">
+                        <button class="nav-btn" onclick="piClient.browseUp()">⬆️ Up</button>
+                        <span class="nav-path" id="current-path" onclick="piClient.browseUp()" title="Click to go up"></span>
+                    </div>
                     <input type="text" id="dir-search" placeholder="Search..." oninput="piClient.searchDirectory(this.value)">
                 </div>
                 <div class="directory-tree" id="directory-tree-tree">
                     <div class="empty-dir">Loading...</div>
+                </div>
+                <div class="browser-actions">
+                    <button onclick="piClient.confirmSelection()" id="confirm-path-btn">✓ Confirm Selection</button>
+                    <button onclick="piClient.toggleDirectoryBrowser()" class="toggle-btn">✕ Cancel</button>
                 </div>
             </div>
             
