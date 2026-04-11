@@ -786,7 +786,8 @@ class PiClient {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
-    
+    }
+
     // Custom folder management
     loadCustomFolders() {
         try {
