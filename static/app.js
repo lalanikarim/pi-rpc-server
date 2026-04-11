@@ -380,16 +380,23 @@ class PiClient {
         const select = document.getElementById('model-select');
         select.disabled = disabled;
         
-        if (disabled && !status) {
+        if (status === '✓') {
+            // Success - show checkmark
+            select.innerHTML = '<option selected>Model switched successfully ✓</option>';
+        } else if (status === '✗') {
+            // Failed
+            select.innerHTML = '<option selected>Model switch failed ✗</option>';
+        } else if (disabled) {
             // Loading state
             select.innerHTML = '<option selected>Switching... ⏳</option>';
-        } else if (!disabled) {
+        } else {
             // Reset to current model display
-            const currentOption = Array.from(select.options).find(opt => opt.selected);
-            if (currentOption) {
-                select.innerHTML = `<option selected>${currentOption.textContent}</option>`;
+            const selectedOption = Array.from(select.options).find(opt => opt.selected);
+            if (selectedOption) {
+                select.innerHTML = '<option selected>' + selectedOption.textContent + '</option>';
             } else {
-                select.innerHTML = '<option selected>Model switch failed</option>';
+                const firstOption = select.options[0];
+                select.innerHTML = '<option selected>' + (firstOption ? firstOption.textContent : 'Loading...') + '</option>';
             }
         }
     }
