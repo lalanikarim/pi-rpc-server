@@ -1,35 +1,17 @@
 {
   "files": {
-    "src/websocket_handler.py": {
-      "modifiedRanges": [
-        {
-          "start": 8,
-          "end": 9
-        },
-        {
-          "start": 19,
-          "end": 19
-        },
-        {
-          "start": 48,
-          "end": 48
-        }
-      ],
-      "importsChanged": true,
-      "lastEdit": "2026-04-10T22:09:21.967Z"
-    },
     "static/app.js": {
       "modifiedRanges": [
         {
-          "start": 14,
-          "end": 14
+          "start": 15,
+          "end": 15
         }
       ],
       "importsChanged": false,
-      "lastEdit": "2026-04-10T22:22:26.144Z"
+      "lastEdit": "2026-04-11T03:38:35.508Z"
     }
   },
   "turnCycles": 0,
   "maxCycles": 3,
-  "lastUpdated": "2026-04-10T22:22:26.144Z"
+  "lastUpdated": "2026-04-11T03:38:35.508Z"
 }

@@ -12,6 +12,7 @@ class PiClient {
         this.modelLoadingCallbacks = [];
         this.loadModelsDeferred = null;
         this.isStreaming = false;
+        this.streamingStarted = false; // Track if we started streaming for this message
         this.init();
     }
     
@@ -420,6 +421,7 @@ class PiClient {
         // Track streaming state - only true during active processing
         if (data.type === 'agent_start' && data.command !== 'get_available_models') {
             this.isStreaming = true;
+            this.streamingStarted = false;
         }
         
         // Store messages for later retrieval
@@ -457,16 +459,24 @@ class PiClient {
         }
 
         if (data.type === 'message_update' && data.assistantMessageEvent?.type === 'text_delta') {
+            this.streamingStarted = true;
             this.addTyping(data.assistantMessageEvent.delta);
         }
         
         if (data.type === 'agent_end') {
             this.isStreaming = false;
-            this.addMessage({
-                type: 'assistant',
-                content: this.extractTextFromMessages(data.messages),
-                timestamp: Date.now()
-            });
+            
+            // Only create final message if we weren't streaming
+            // (streaming already displayed the text via addTyping)
+            if (!this.streamingStarted) {
+                this.addMessage({
+                    type: 'assistant',
+                    content: this.extractTextFromMessages(data.messages),
+                    timestamp: Date.now()
+                });
+            }
+            
+            this.streamingStarted = false;
         }
     }
     
