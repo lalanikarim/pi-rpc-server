@@ -1,5 +1,13 @@
 {
-  "dependencies": {
-    "ws": "^8.20.0"
+  "name": "pi-rpc-server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "npx esbuild static/app.ts --bundle --outfile=static/app.js --target=es2020 --minify",
+    "watch": "npx esbuild static/app.ts --bundle --outfile=static/app.js --watch",
+    "dev": "npm run watch & pkill -f 'uvicorn' && sleep 2 && uv run uvicorn src.main:app --port 8000"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
   }
 }
