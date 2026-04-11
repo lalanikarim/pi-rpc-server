@@ -195,23 +195,17 @@ class PiClient {
     }
     
     toggleCustomPath() {
-        const select = document.getElementById('cwd-select');
-        const customInput = document.getElementById('custom-path-input');
-        
-        if (select.value === 'custom') {
-            customInput.classList.add('active');
-            document.getElementById('custom-path').focus();
-        } else {
-            customInput.classList.remove('active');
-        }
+        // Custom path field doesn't exist, nothing to show/hide
+        console.log('Custom path input not available');
     }
     
     getCurrentCwd() {
         const select = document.getElementById('cwd-select');
-        const customPath = document.getElementById('custom-path');
         
-        if (select.value === 'custom' && customPath.value.trim()) {
-            return customPath.value.trim();
+        // All custom folders go to 'custom' value, no custom-path field exists
+        if (select.value === 'custom') {
+            // Return a placeholder - custom path input doesn't exist
+            return select.value || '';
         }
         return select.value;
     }
