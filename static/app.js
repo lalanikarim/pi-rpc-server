@@ -133,21 +133,14 @@ class PiClient {
     }
     
     selectPath(path) {
-        console.log('Selected path:', path);
-        
-        // Update the cwd select dropdown
         const select = document.getElementById('cwd-select');
         
-        // Check if path matches a preset
         if (path === 'project') {
             select.value = 'project';
         } else if (path.substring(0, 2) === '~/' || path === '/Users/karim' || path === '/Users/karim/Projects') {
             select.value = path;
         } else {
-            // Handle custom path
             select.value = 'custom';
-            document.getElementById('custom-path-input').classList.add('active');
-            document.getElementById('custom-path').value = path;
         }
     }
     
@@ -157,10 +150,8 @@ class PiClient {
         
         console.log('Confirming selection:', selectedPath);
         
-        // Update the cwd select dropdown
         const select = document.getElementById('cwd-select');
         
-        // Check if path is a preset
         const presets = {
             'project': 'Current project repo',
             '~/': 'Home directory (~)',
@@ -170,33 +161,20 @@ class PiClient {
         
         if (selectedPath === 'project') {
             select.value = 'project';
-            foundPreset = true;
         } else if (presets[selectedPath]) {
             select.value = selectedPath;
-            foundPreset = true;
-            
-            // Update custom path input
-            if (selectedPath.substring(0, 2) === '~/' || selectedPath.startsWith('/Users')) {
-                document.getElementById('custom-path-input').classList.remove('active');
-            }
         } else {
-            // Handle custom path
             select.value = 'custom';
-            document.getElementById('custom-path-input').classList.add('active');
-            document.getElementById('custom-path').value = selectedPath;
         }
         
-        // Add to custom folders (except for presets)
         if (!presets[selectedPath] && selectedPath !== 'project') {
             this.addCustomFolder(selectedPath);
         }
         
-        // Hide the directory browser
         const container = document.getElementById('directory-browser-container');
         container.style.display = 'none';
         this.directoryBrowserVisible = false;
         
-        // Trigger load sessions if button exists
         const loadBtn = document.getElementById('load-sessions');
         if (loadBtn) {
             loadBtn.click();
@@ -850,20 +828,19 @@ class PiClient {
     
     selectCustomFolder(path) {
         const select = document.getElementById('cwd-select');
-        select.value = path;
         
         if (path === 'project') {
             select.value = 'project';
         } else if (path.substring(0, 2) === '~/' || path === '/Users/karim' || path === '/Users/karim/Projects') {
             select.value = path;
-            document.getElementById('custom-path-input').classList.remove('active');
         } else {
             select.value = 'custom';
-            document.getElementById('custom-path-input').classList.add('active');
-            document.getElementById('custom-path').value = path;
         }
         
-        document.getElementById('custom-folders-list').style.display = 'none';
+        const customFoldersList = document.getElementById('custom-folders-list');
+        if (customFoldersList) {
+            customFoldersList.style.display = 'none';
+        }
     }
     
     removeCustomFolder(path) {
