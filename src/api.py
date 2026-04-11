@@ -318,6 +318,47 @@ async def export_session(session_id: str, path: str = Query(None)):
     }
 
 
+### Browse filesystem API
+
+
+@router.get("/browse")
+async def browse_filesystem(
+    path: str = Query("/Users/karim", description="Path to browse"),
+):
+    """List directory contents."""
+    from pathlib import Path
+
+    try:
+        browse_path = Path(path)
+        if not browse_path.exists():
+            return {"error": f"Path does not exist: {path}", "entries": []}
+
+        if not browse_path.is_dir():
+            browse_path = browse_path.parent
+
+        entries = []
+        for item in browse_path.iterdir():
+            entries.append(
+                {"name": item.name, "type": "directory" if item.is_dir() else "file"}
+            )
+
+        # Sort directories first, then files, alphabetically
+        entries.sort(key=lambda x: (x["type"] != "directory", x["name"].lower()))
+
+        return {
+            "path": str(browse_path),
+            "entries": entries,
+            "parent": str(browse_path.parent)
+            if browse_path != browse_path.parent
+            else "/",
+        }
+
+    except PermissionError:
+        return {"error": "Permission denied", "entries": []}
+    except Exception as e:
+        return {"error": str(e), "entries": []}
+
+
 ### Helper functions
 
 

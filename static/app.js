@@ -16,6 +16,144 @@ class PiClient {
         this.init();
     }
     
+    // Directory browser methods
+    async init() {
+        await this.loadInitialDirectory();
+        this.bindEvents();
+    }
+    
+    async loadInitialDirectory() {
+        // Try to detect home directory
+        const defaultHome = '/Users/karim';
+        
+        try {
+            const testPath = await fetch(`${this.baseUrl}/api/browse?path=${encodeURIComponent(defaultHome)}`);
+            const data = await testPath.json();
+            // If the directory exists and has entries, use it
+            if (testPath.ok && !data.error) {
+                window.homeDir = defaultHome;
+            } else {
+                window.homeDir = '/';
+            }
+        } catch (err) {
+            console.warn('Could not detect home directory, using /');
+            window.homeDir = '/';
+        }
+    }
+    
+    toggleDirectoryBrowser() {
+        const container = document.getElementById('directory-browser-container');
+        const isSelected = container.style.display === 'flex';
+        container.style.display = isSelected ? 'none' : 'flex';
+        
+        if (!isSelected) {
+            this.loadDirectoryTree(window.homeDir || '/Users/karim');
+        }
+    }
+    
+    async loadDirectoryTree(path) {
+        try {
+            const response = await fetch(`${this.baseUrl}/api/browse?path=${encodeURIComponent(path)}`);
+            const data = await response.json();
+            
+            if (!data || !data.entries) {
+                throw new Error('Failed to load directory');
+            }
+            
+            const treeContainer = document.getElementById('directory-tree-tree');
+            treeContainer.innerHTML = this.renderDirectoryEntries(data.entries, path);
+            
+            document.getElementById('current-path').textContent = path;
+            
+        } catch (err) {
+            console.error('Failed to load directory tree:', err);
+            const treeContainer = document.getElementById('directory-tree-tree');
+            treeContainer.innerHTML = `<div class="empty-dir">Error: ${err.message}</div>`;
+        }
+    }
+    
+    renderDirectoryEntries(entries, currentPath) {
+        if (!entries || entries.length === 0) {
+            return '<div class="empty-dir">Empty directory</div>';
+        }
+        
+        let html = '';
+        entries.forEach(entry => {
+            let fullPath;
+            if (currentPath === '/') {
+                fullPath = '/' + entry.name;
+            } else {
+                fullPath = currentPath + '/' + entry.name;
+            }
+            
+            const isSelected = fullPath.includes(this.getCurrentCwd()) || fullPath === this.getCurrentCwd();
+            const icon = entry.type === 'directory' ? '📁' : '📄';
+            const iconSize = entry.type === 'directory' ? '1.2rem' : '1rem';
+            
+            html += `
+                <div class="tree-entry ${isSelected ? 'selected' : ''}" 
+                     onclick="piClient.selectPath('${fullPath}')">
+                    <span class="file-icon" style="font-size: ${iconSize}">${icon}</span>
+                    <strong class="file-name ${isSelected ? 'selected-file' : ''}">${entry.name}</strong>
+                    ${entry.type === 'directory' ? '<span class="status">/</span>' : ''}
+                </div>
+            `;
+        });
+        
+        return html;
+    }
+    
+    browseUp() {
+        const pathEl = document.getElementById('current-path');
+        const path = pathEl.textContent;
+        const index = path.lastIndexOf('/');
+        
+        if (index > 0) {
+            const parentPath = path.substring(0, index);
+            this.loadDirectoryTree(parentPath || '/');
+        }
+    }
+    
+    searchDirectory(query) {
+        const treeEntries = document.querySelectorAll('.tree-entry');
+        const searchTerm = query.toLowerCase();
+        
+        treeEntries.forEach(entry => {
+            const name = entry.querySelector('.file-name')?.textContent.toLowerCase();
+            if (name && name.includes(searchTerm)) {
+                entry.style.display = '';
+            } else if (query) {
+                entry.style.display = 'none';
+            }
+        });
+    }
+    
+    selectPath(path) {
+        console.log('Selected path:', path);
+        
+        // Update the cwd select dropdown
+        const select = document.getElementById('cwd-select');
+        
+        // Check if path matches a preset
+        if (path === 'project') {
+            select.value = 'project';
+        } else if (path.substring(0, 2) === '~/' || path === '/Users/karim' || path === '/Users/karim/Projects') {
+            select.value = path;
+        } else {
+            // Handle custom path
+            select.value = 'custom';
+            document.getElementById('custom-path-input').classList.add('active');
+            document.getElementById('custom-path').value = path;
+        }
+        
+        // Hide the directory browser after selection (with a small delay)
+        setTimeout(() => {
+            const container = document.getElementById('directory-browser-container');
+            container.style.display = 'none';
+            this.directoryBrowserVisible = false;
+        }, 300);
+    }
+    
     init() {
         this.bindEvents();
     }
