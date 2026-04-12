@@ -201,4 +201,4 @@ class PiClient {
     }
 }
 
-window.piClient = /** @type {PiClient|null} */ (null);
+window.piClient = new PiClient();)
